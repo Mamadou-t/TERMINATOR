@@ -3,7 +3,7 @@ import { Icon, type IconName } from './';
 
 export type InputSize = 'sm' | 'md' | 'lg';
 
-export interface InputTextProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size' | 'type'> {
+export interface InputSelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'size'> {
   size?: InputSize;
   icon?: IconName;
   iconPosition?: 'left' | 'right';
@@ -11,7 +11,7 @@ export interface InputTextProps extends Omit<React.InputHTMLAttributes<HTMLInput
   helperText?: string;
   fullWidth?: boolean;
   label?: string;
-  type?: string;
+  options: { label: string; value: string | number }[];
 }
 
 const sizeStyles: Record<InputSize, string> = {
@@ -26,7 +26,7 @@ const iconSizeStyles: Record<InputSize, 'sm' | 'md' | 'lg'> = {
   lg: 'md'
 };
 
-export const InputText = forwardRef<HTMLInputElement, InputTextProps>(({
+export const InputSelect = forwardRef<HTMLSelectElement, InputSelectProps>(({
   size = 'md',
   icon,
   iconPosition = 'left',
@@ -36,45 +36,41 @@ export const InputText = forwardRef<HTMLInputElement, InputTextProps>(({
   label,
   className = '',
   disabled,
-  type = '',
+  options,
   ...props
 }, ref) => {
-  const baseInputStyles = 'block w-full border rounded-md shadow-sm placeholder-[#6B7280] focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-[#1e3a5f] transition-colors duration-200';
+  const baseInputStyles = 'block w-full border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:border-[#1e3a5f] transition-colors duration-200';
   const inputStyles = error
-    ? 'border-red-300 text-red-900 placeholder-red-300 focus:ring-red-500 focus:border-red-500'
+    ? 'border-red-300 text-red-900 focus:ring-red-500 focus:border-red-500'
     : 'border-gray-300 text-gray-900 focus:ring-[#1e3a5f] focus:border-[#1e3a5f]';
 
   const widthClass = fullWidth ? 'w-full' : '';
 
-  const inputElement = (
+  const selectElement = (
     <div className={`relative ${widthClass}`}>
       {icon && iconPosition === 'left' && (
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <Icon name={icon} size={iconSizeStyles[size]} className="text-gray-400" />
         </div>
       )}
-
-      {type !== 'textarea' ? (
-        <input
-          type={type}
-          ref={ref}
-          className={`${baseInputStyles} ${inputStyles} ${sizeStyles[size]} ${icon && iconPosition === 'left' ? 'pl-10' : ''} ${icon && iconPosition === 'right' ? 'pr-10' : ''} ${className}`}
-          disabled={disabled}
-          {...props}
-        />
-      ) : (
-        <textarea
-          className={`${baseInputStyles} ${inputStyles} ${sizeStyles[size]} ${icon && iconPosition === 'left' ? 'pl-10' : ''} ${icon && iconPosition === 'right' ? 'pr-10' : ''} ${className}`}
-          disabled={disabled}
-          value={props.value as string | number | readonly string[] | undefined}
-          onChange={props.onChange as React.ChangeEventHandler<HTMLTextAreaElement> | undefined}
-        />
-      )}
-
-
-      
-
-
+      <select
+        ref={ref}
+        className={`${baseInputStyles} ${inputStyles} ${sizeStyles[size]} ${icon && iconPosition === 'left' ? 'pl-10' : ''} ${icon && iconPosition === 'right' ? 'pr-10' : ''} ${className} appearance-none`}
+        disabled={disabled}
+        {...props}
+      >
+        {/* Option vide si nécessaire */}
+        <option value="">Sélectionner...</option>
+        {options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+      {/* Flèche d'indication dropdown */}
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+        <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
       {icon && iconPosition === 'right' && (
         <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
           <Icon name={icon} size={iconSizeStyles[size]} className="text-gray-400" />
@@ -91,7 +87,7 @@ export const InputText = forwardRef<HTMLInputElement, InputTextProps>(({
         </label>
       )}
 
-      {inputElement}
+      {selectElement}
 
       {(error || helperText) && (
         <p className={`text-sm ${error ? 'text-red-600' : 'text-gray-500'}`}>
@@ -102,4 +98,5 @@ export const InputText = forwardRef<HTMLInputElement, InputTextProps>(({
   );
 });
 
-InputText.displayName = 'InputText';
+InputSelect.displayName = 'InputSelect';
+

@@ -1,348 +1,221 @@
-import { useState } from 'react';
-import { Card, CardContent, CardFooter, CardHeader } from '../../Card';
-import { Alert, Badge, Button, Icon, InputText } from '../..';
+import { useMemo, useState } from 'react';
+import { Card, CardContent, CardFooter } from '../../Card';
+import { Button, IconButton } from '../..';
+import { useProjet } from '../../../context/ProjetContext';
+import { creerOuMajPerimetre } from '../../../services/planificationApi';
+import { formatApiError } from '../../../lib/api';
+import { useNotification } from '../../../hooks/useNotification';
 
+interface PerimetrePoint {
+    id: string;
+    titre: string;
+    sousPoints: string[];
+}
 
-export default function Perimetre() {
-    const [localisation, setLocalisation] = useState('');
-    const [referencesFoncieres, setReferencesFoncieres] = useState('');
-    const [superficieTotale, setSuperficieTotale] = useState('');
-    const [topographie, setTopographie] = useState('');
-    const [natureSol, setNatureSol] = useState('');
-    const [accessibilite, setAccessibilite] = useState('');
-    const [contraintes, setContraintes] = useState('');
+const parsePoints = (raw: string): PerimetrePoint[] => {
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return parsed
+                .filter((p) => p && typeof p === 'object')
+                .map((p, i) => ({
+                    id: String(p.id ?? `pt-${i}`),
+                    titre: String(p.titre ?? ''),
+                    sousPoints: Array.isArray(p.sousPoints) ? p.sousPoints.map((s: unknown) => String(s)) : []
+                }));
+        }
+    } catch {
+        // Rétrocompatibilité : ancien texte libre -> un grand point sans titre.
+        const lignes = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+        return lignes.length ? [{ id: 'legacy', titre: '', sousPoints: lignes }] : [];
+    }
+    return [];
+};
+
+const serializePoints = (points: PerimetrePoint[]): string => JSON.stringify(points);
+
+const uid = () => `pt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+function PointsEditor({
+    points,
+    onChange,
+    accent
+}: {
+    points: PerimetrePoint[];
+    onChange: (next: PerimetrePoint[]) => void;
+    accent: 'emerald' | 'red';
+}) {
+    const dot = accent === 'emerald' ? 'bg-emerald-500' : 'bg-red-500';
+
+    const addGrandPoint = () => onChange([...points, { id: uid(), titre: '', sousPoints: [] }]);
+    const removeGrandPoint = (id: string) => onChange(points.filter((p) => p.id !== id));
+    const updateTitre = (id: string, titre: string) => onChange(points.map((p) => (p.id === id ? { ...p, titre } : p)));
+
+    const addSousPoint = (id: string) => onChange(points.map((p) => (p.id === id ? { ...p, sousPoints: [...p.sousPoints, ''] } : p)));
+    const updateSousPoint = (id: string, idx: number, value: string) =>
+        onChange(points.map((p) => (p.id === id ? { ...p, sousPoints: p.sousPoints.map((s, i) => (i === idx ? value : s)) } : p)));
+    const removeSousPoint = (id: string, idx: number) =>
+        onChange(points.map((p) => (p.id === id ? { ...p, sousPoints: p.sousPoints.filter((_, i) => i !== idx) } : p)));
 
     return (
-        <div className='flex '>
-            <div className="my-6 mx-2 w-full">
-                <div className="space-y-3">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                        <div>
-                            <div className="text-xl font-semibold text-slate-900">Périmetre du projet</div>
-                            <div className="text-sm text-slate-500">Définissez les bases officielles du projet avant de lancer la planification.</div>
-                        </div>
+        <div className="space-y-2.5">
+            {points.length === 0 && (
+                <p className="text-xs text-gray-500">Aucun grand point pour l'instant.</p>
+            )}
+            {points.map((point) => (
+                <div key={point.id} className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <span className={`h-6 w-1 rounded ${dot} shrink-0`} />
+                        <input
+                            value={point.titre}
+                            onChange={(e) => updateTitre(point.id, e.target.value)}
+                            placeholder="Grand point (ex. Travaux préparatoires)"
+                            className="flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-sm font-semibold text-gray-900 outline-none focus:border-gray-200 focus:bg-gray-50"
+                        />
+                        <IconButton variant="danger" size="sm" icon="delete" tooltip="Supprimer ce point" onClick={() => removeGrandPoint(point.id)} />
+                    </div>
+
+                    <div className="mt-2 space-y-1.5 pl-3.5">
+                        {point.sousPoints.map((sp, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                                <span className={`h-1.5 w-1.5 rounded-full ${dot} shrink-0`} />
+                                <input
+                                    value={sp}
+                                    onChange={(e) => updateSousPoint(point.id, idx, e.target.value)}
+                                    placeholder="Sous-point"
+                                    className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-[#1e3a5f]"
+                                />
+                                <IconButton variant="secondary" size="sm" icon="x" tooltip="Supprimer" onClick={() => removeSousPoint(point.id, idx)} />
+                            </div>
+                        ))}
+                        <Button variant="ghost" size="sm" icon="plus" onClick={() => addSousPoint(point.id)}>
+                            Ajouter un sous-point
+                        </Button>
                     </div>
                 </div>
+            ))}
 
-                <div>
-                    <Card className='my-3'>
-                        <CardHeader className='flex justify-between'>
-                            <div className="text-lg font-medium text-slate-900">
-                                <h3>Consistance du projet</h3>
-                                <p className='text-sm text-gray-400'>Ce qui est à faire</p>
-                            </div>
-                            <div>
-                                <Button>Ajouter</Button>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {/* Consistance du projet */}
-                            <div className=' col-auto'>
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                            </div>
-                        </CardContent>
-
-
-                    </Card>
-
-                    <Card className='my-3'>
-                        <CardHeader className='flex justify-between'>
-                            <div className="text-lg font-medium text-slate-900">
-                                <h3>Exclusions contractuelles</h3>
-                                <p className='text-sm text-gray-400'>Prestations expressément non comprises au projet</p>
-                            </div>
-                            <div>
-                                <Button>Ajouter</Button>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {/* Exclusions contractuelles */}
-                            <div className=' col-auto'>
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                            </div>
-                        </CardContent>
-
-
-                    </Card>
-
-                    <Card className='my-3'>
-                        <CardHeader className='flex justify-between'>
-                            <div className="text-lg font-medium text-slate-900">
-                                <h3>Contexte et état d'avancement du projet</h3>
-                                <p className='text-sm text-gray-400'>Situation administrative, technique et réglementaire à la date d'établissement</p>
-                            </div>
-                            <div>
-                                <Button>Ajouter</Button>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {/* Exclusions contractuelles */}
-                            <div className=' col-auto'>
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                                <div className='py-2'>
-                                    <div className='flex items-center gap-2 mb-3'>
-                                        <div className='bg-blue-950 p-1 w-1 h-1  rounded-full'></div>
-                                        <h3 className='text-xl font-medium text-slate-900'>Objectifs du projet</h3>
-                                    </div>
-                                    <div className='px-5'>
-                                        <p className='text-sm text-gray-500'>Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-
-                                    </div>
-                                </div>
-
-                            </div>
-                        </CardContent>
-
-
-                    </Card>
-
-                    <Card className='my-3'>
-                        <CardHeader className='flex justify-between'>
-                            <div className="text-lg font-medium text-slate-900">
-                                <h3>Localisation et caractéristiques du site</h3>
-                                <p className='text-sm text-gray-400'>Données foncières, physiques et géotechniques du terrain d'assiette</p>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            <div>
-                                <div className='flex flex-wrap gap-7'>
-                                    <InputText
-                                        label="LOCALISATION DU SITE"
-                                        placeholder="Cocody Riviera 3, Abidjan, Côte d'Ivoire"
-                                        helperText="Maximum 50 caractères"
-                                        value={localisation}
-                                        onChange={(e) => setLocalisation(e.target.value)}
-                                    />
-
-                                    <InputText
-                                        label="REFERENCES FONCIERES"
-                                        placeholder="TF N° 12345"
-                                        helperText="Maximum 50 caractères"
-                                        value={referencesFoncieres}
-                                        onChange={(e) => setReferencesFoncieres(e.target.value)}
-                                    />
-
-                                    <InputText
-                                        label="SUPERFICIE TOTALE"
-                                        placeholder="1000 m²"
-                                        helperText="Maximum 50 caractères"
-                                        value={superficieTotale}
-                                        onChange={(e) => setSuperficieTotale(e.target.value)}
-                                    />
-
-                                    <InputText
-                                        label="TOPOGRAPHIE DU SITE"
-                                        placeholder="Terrain plat avec légère pente vers le sud"
-                                        helperText="Maximum 50 caractères"
-                                        value={topographie}
-                                        onChange={(e) => setTopographie(e.target.value)}
-                                    />
-
-                                    <InputText
-                                        label="NATURE DU SOL"
-                                        placeholder="Sol argileux"
-                                        helperText="Maximum 50 caractères"
-                                        value={natureSol}
-                                        onChange={(e) => setNatureSol(e.target.value)}
-                                    />
-
-                                    <InputText
-                                        label="ACCESSIBILITE DU CHANTIER"
-                                        placeholder=""
-                                        helperText="Maximum 50 caractères"
-                                        value={accessibilite}
-                                        onChange={(e) => setAccessibilite(e.target.value)}
-                                    />
-
-                                </div>
-
-                                <div className='my-5'>
-                                    <Card>
-                                        <CardHeader>
-                                            <h2>CONTRAINTES SPECIFIQUES DU SITE</h2>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <InputText
-                                                type='textarea'
-                                                value={contraintes}
-                                                onChange={(e) => setContraintes(e.target.value)}
-                                            />
-                                        </CardContent>
-                                        <CardFooter>
-                                            <div className='flex justify-center bg-gray-50  border-gray-300 border-dashed border   rounded-md  p-3 text-sm text-gray-500'>
-                                                <div className='flex flex-col items-center justify-center '>
-                                                    <Icon name="map-pin" className="transform rotate-90 my-2" size="sm" />
-                                                    <div className='my-5 '>
-                                                        <p>Déposer le plan de masse, plan de situation, rapport géotechnique
-                                                        </p>
-                                                        <p>Formats acceptés : PDF, DWG, DXF, PNG — 50 Mo max par fichier</p>
-
-                                                    </div>
-                                                </div>
-
-                                            </div>
-
-                                        </CardFooter>
-                                    </Card>
-                                </div>
-                            </div>
-                        </CardContent>
-
-
-                    </Card>
-
-                </div>
-
-            </div>
-
-            {/* PARTIE PAPIER PREVIEW */}
-
-            {/* <div className="border-l border-gray-200 bg-white flex flex-col overflow-y-auto my-6 mx-2 w-4/12 h-full">
-                <div className="w-80 h-96 bg-white border shadow-lg mx-auto p-8 text-sm">
-                    <h1 className="text-center text-xl font-bold mb-4">APERÇU CHARTE DU PROJET</h1>
-                    
-                    <h2 className="text-lg font-semibold mb-2">Consistance du projet</h2>
-                    <p className="mb-4">Ce qui est à faire : Objectifs du projet - Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-                    
-                    <h2 className="text-lg font-semibold mb-2">Exclusions contractuelles</h2>
-                    <p className="mb-4">Prestations expressément non comprises au projet : Objectifs du projet - Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-                    
-                    <h2 className="text-lg font-semibold mb-2">Contexte et état d'avancement du projet</h2>
-                    <p className="mb-4">Situation administrative, technique et réglementaire à la date d'établissement : Objectifs du projet - Décrivez les objectifs spécifiques que le projet vise à atteindre. Assurez-vous qu'ils sont clairs, mesurables et alignés sur les besoins des parties prenantes.</p>
-                    
-                    <h2 className="text-lg font-semibold mb-2">Localisation et caractéristiques du site</h2>
-                    <ul className="mb-4">
-                        <li><strong>Localisation du site :</strong> {localisation || 'Non saisi'}</li>
-                        <li><strong>Références foncières :</strong> {referencesFoncieres || 'Non saisi'}</li>
-                        <li><strong>Superficie totale :</strong> {superficieTotale || 'Non saisi'}</li>
-                        <li><strong>Topographie du site :</strong> {topographie || 'Non saisi'}</li>
-                        <li><strong>Nature du sol :</strong> {natureSol || 'Non saisi'}</li>
-                        <li><strong>Accessibilité du chantier :</strong> {accessibilite || 'Non saisi'}</li>
-                    </ul>
-                    
-                    <h3 className="font-semibold mb-2">Contraintes spécifiques du site</h3>
-                    <p>{contraintes || 'Non saisi'}</p>
-                </div>
-            </div> */}
-
+            <Button variant="secondary" size="sm" icon="plus" onClick={addGrandPoint}>
+                Ajouter un grand point
+            </Button>
         </div>
-    )
+    );
+}
+
+export default function Perimetre() {
+    const { perimetre, projet, data, setData } = useProjet();
+    const [isSaving, setIsSaving] = useState(false);
+    const { notifySuccess, notifyError, NotificationToast } = useNotification();
+
+    const inclus = useMemo(() => parsePoints(perimetre.inclusions_perimetre), [perimetre.inclusions_perimetre]);
+    const exclus = useMemo(() => parsePoints(perimetre.exclusions_perimetre), [perimetre.exclusions_perimetre]);
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            const result = await creerOuMajPerimetre(perimetre, projet.id_projet);
+            setData({ ...data, perimetre: result });
+            notifySuccess('Périmètre enregistré.');
+        } catch (err) {
+            notifyError(formatApiError(err));
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const updateField = (patch: Partial<typeof perimetre>) => {
+        setData({ ...data, perimetre: { ...perimetre, ...patch } });
+    };
+
+    return (
+        <div className='w-full h-full flex flex-col bg-gray-50'>
+            <div className="flex-1 overflow-auto p-6 space-y-5">
+                {NotificationToast}
+
+                <Card>
+                    <CardContent>
+                        <div className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">Énoncé du périmètre</label>
+                                <textarea
+                                    value={perimetre.enonce_perimetre}
+                                    onChange={(e) => updateField({ enonce_perimetre: e.target.value })}
+                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm"
+                                    rows={3}
+                                    placeholder="Résumé de ce que le projet livre"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div className="overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+                                    <div className="flex items-center justify-between border-b border-gray-200 bg-emerald-50 px-4 py-2.5">
+                                        <h3 className="text-sm font-semibold text-emerald-700">CE QUI EST INCLUS (IN SCOPE)</h3>
+                                        <span className="text-xs font-medium text-emerald-700">{inclus.length} point{inclus.length > 1 ? 's' : ''}</span>
+                                    </div>
+                                    <div className="p-3">
+                                        <PointsEditor
+                                            points={inclus}
+                                            onChange={(next) => updateField({ inclusions_perimetre: serializePoints(next) })}
+                                            accent="emerald"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+                                    <div className="flex items-center justify-between border-b border-gray-200 bg-red-50 px-4 py-2.5">
+                                        <h3 className="text-sm font-semibold text-red-700">CE QUI EST EXCLUS (OUT OF SCOPE)</h3>
+                                        <span className="text-xs font-medium text-red-700">{exclus.length} point{exclus.length > 1 ? 's' : ''}</span>
+                                    </div>
+                                    <div className="p-3">
+                                        <PointsEditor
+                                            points={exclus}
+                                            onChange={(next) => updateField({ exclusions_perimetre: serializePoints(next) })}
+                                            accent="red"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">Contraintes</label>
+                                <textarea
+                                    value={perimetre.contraintes}
+                                    onChange={(e) => updateField({ contraintes: e.target.value })}
+                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm"
+                                    rows={3}
+                                    placeholder="Budget, délai, infrastructure, réglementation, etc."
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">Hypothèses</label>
+                                <textarea
+                                    value={perimetre.hypotheses}
+                                    onChange={(e) => updateField({ hypotheses: e.target.value })}
+                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm"
+                                    rows={3}
+                                    placeholder="Suppositions acceptées comme vraies (disponibilité, ressources, données, etc.)"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-2">Critères de réussite du projet</label>
+                                <textarea
+                                    value={perimetre.criteres_acceptation}
+                                    onChange={(e) => updateField({ criteres_acceptation: e.target.value })}
+                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg text-sm"
+                                    rows={3}
+                                    placeholder="Conditions à remplir pour considérer le projet comme réussi"
+                                />
+                            </div>
+                        </div>
+                    </CardContent>
+                    <CardFooter className='flex justify-end'>
+                        <Button onClick={handleSave} loading={isSaving}>Enregistrer</Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        </div>
+    );
 }

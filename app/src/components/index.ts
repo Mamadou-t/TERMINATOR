@@ -30,3 +30,19 @@ export type { AlertProps, AlertVariant } from './Alert';
 
 export { DataTable } from './DataTable';
 export type { DataTableColumn, DataTableProps, SortDirection } from './DataTable';
+
+export { UserMenu } from './UserMenu';
+
+export { ProjetTreeNav } from './ProjetTreeNav';
+
+export { SignaturePad } from './SignaturePad';
+
+export { SignatureImport } from './SignatureImport';
+
+export { ProcessusNav } from './ProcessusNav';
+
+export { KpiCard } from './KpiCard';
+
+export { DomaineHeader } from './DomaineHeader';
+
+export { DomaineAVenir } from './DomaineAVenir';

@@ -68,7 +68,11 @@ export type IconName =
   | 'star-filled'
   | 'heart'
   | 'heart-filled'
-  | 'map-pin';
+  | 'map-pin'
+
+  // other icons can be added here as needed
+  | 'currency'
+  | 'percentage';
 
 export interface IconProps {
   name: IconName;
@@ -156,6 +160,10 @@ const iconPaths: Record<IconName, string> = {
   heart: 'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z',
   'heart-filled': 'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z',
   'map-pin': 'M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a2 2 0 010-2.828l10.586-10.586a2 2 0 012.828 0l4.243 4.243a2 2 0 010 2.828z',
+
+  // Other icons
+  currency: 'M12 8c-1.657 0-3 1.343-3 3s1.343 3 3 3 3-1.343 3-3-1.343-3-3-3zm0 6c-1.657 0-3-1.343-3-3s1.343-3 3-3 3 1.343 3 3-1.343 3-3 3z',
+  percentage: 'M19 5l-14 14M5 5l14 14M12 12a3 3 0 11-6 0 3 3 0 016 0z',
 };
 
 export default function Icon({

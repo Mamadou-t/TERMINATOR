@@ -1,416 +1,179 @@
-import { useState } from 'react';
-import { Badge, InputText, Icon, Button } from '../../index';
+import { useMemo, useState } from 'react';
+import { Badge, Button, Icon, IconButton, InputText, Modal, ModalFooter } from '../../index';
+import { InputSelect } from '../../InputSelect';
+import { useProjet } from '../../../context/ProjetContext';
+import { useConfirm } from '../../../hooks/useConfirm';
+import { useNotification } from '../../../hooks/useNotification';
+import { formatApiError } from '../../../lib/api';
+import { WbsTreeNav } from './WbsTreeNav';
+import type { Cout } from '../../../types';
 
-interface WBSNode {
-  id: string;
-  code: string;
-  name: string;
-  status: 'Terminé' | 'En cours' | 'À faire';
-  statusColor: string;
-  assignee?: string;
-  children?: WBSNode[];
-  isExpanded?: boolean;
-  isSelected?: boolean;
-  description?: string;
-  acceptanceCriteria?: string[];
-  estimatedDuration?: number;
-  estimatedCost?: number;
-  inScope?: string;
-  outOfScope?: string;
-}
+const TYPES_COUT = ["Main d'œuvre", 'Matériaux', 'Sous-traitance', 'Frais généraux', 'Logiciel', 'Infrastructure', 'Général'];
+
+const emptyDraft = { poste_budgetaire: '', montant_estime: '', montant_reel: '', devise: 'XOF', type_cout: 'Général' };
 
 export default function Budget() {
-  const [selectedNode, setSelectedNode] = useState<WBSNode | null>(null);
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['1', '1.1', '1.2']));
+  const { couts, activites, wbs, upsertCout, removeCout } = useProjet();
+  const { confirm, ConfirmDialog } = useConfirm();
+  const { notifySuccess, notifyError, NotificationToast } = useNotification();
 
-  const [wbsData] = useState<WBSNode>({
-    id: '1',
-    code: '1',
-    name: 'Refonte SI Ressources Humaines',
-    status: 'En cours',
-    statusColor: 'b-navy',
-    children: [
-      {
-        id: '1.1',
-        code: '1.1',
-        name: 'Initialisation & cadrage',
-        status: 'Terminé',
-        statusColor: 'b-green',
-        isExpanded: true,
-        children: [
-          {
-            id: '1.1.1',
-            code: '1.1.1',
-            name: 'Charte du projet',
-            status: 'Terminé',
-            statusColor: 'b-green',
-            assignee: 'AK',
-            description: 'Document formalisant les objectifs, périmètre et contraintes du projet.',
-            acceptanceCriteria: ['Approuvé par le sponsor', 'Signé par toutes les parties'],
-            estimatedDuration: 5,
-            estimatedCost: 50000,
-            inScope: 'Définition objectifs, périmètre, contraintes',
-            outOfScope: 'Exécution technique'
-          },
-          {
-            id: '1.1.2',
-            code: '1.1.2',
-            name: 'Registre parties prenantes',
-            status: 'Terminé',
-            statusColor: 'b-green',
-            assignee: 'AK',
-            description: 'Identification et analyse des parties prenantes du projet.',
-            acceptanceCriteria: ['Toutes parties identifiées', 'Stratégies définies'],
-            estimatedDuration: 3,
-            estimatedCost: 25000,
-            inScope: 'Identification, analyse influence/intérêt',
-            outOfScope: 'Gestion opérationnelle'
-          },
-          {
-            id: '1.1.3',
-            code: '1.1.3',
-            name: 'Étude de faisabilité',
-            status: 'Terminé',
-            statusColor: 'b-green',
-            assignee: 'OS',
-            description: 'Analyse technique et économique de la faisabilité du projet.',
-            acceptanceCriteria: ['ROI calculé', 'Risques identifiés'],
-            estimatedDuration: 10,
-            estimatedCost: 150000,
-            inScope: 'Analyse technique, économique',
-            outOfScope: 'Développement'
-          }
-        ]
-      },
-      {
-        id: '1.2',
-        code: '1.2',
-        name: 'Conception & architecture SIRH',
-        status: 'En cours',
-        statusColor: 'b-amber',
-        isExpanded: true,
-        children: [
-          {
-            id: '1.2.1',
-            code: '1.2.1',
-            name: 'Architecture technique cible',
-            status: 'En cours',
-            statusColor: 'b-amber',
-            assignee: 'OS',
-            isSelected: true,
-            description: 'Définir l\'architecture technique du SIRH : choix de la plateforme, infrastructure cloud, sécurité des données et intégrations API avec les systèmes existants.',
-            acceptanceCriteria: ['Document d\'architecture validé par DSI', 'Choix technologiques justifiés', 'Validation sécurité RSSI', 'Schéma d\'intégration API approuvé'],
-            estimatedDuration: 15,
-            estimatedCost: 2500000,
-            inScope: 'Architecture cloud, choix SGBD, schéma intégrations, plan de sécurité',
-            outOfScope: 'Migration données historiques (traitée en 1.3.2)'
-          },
-          {
-            id: '1.2.2',
-            code: '1.2.2',
-            name: 'Modélisation des processus RH',
-            status: 'En cours',
-            statusColor: 'b-amber',
-            assignee: 'FT',
-            description: 'Modélisation des processus métier RH à automatiser.',
-            acceptanceCriteria: ['Processus cartographiés', 'Validation métier'],
-            estimatedDuration: 12,
-            estimatedCost: 1800000,
-            inScope: 'Cartographie processus, optimisation',
-            outOfScope: 'Développement logiciel'
-          },
-          {
-            id: '1.2.3',
-            code: '1.2.3',
-            name: 'Spécifications fonctionnelles',
-            status: 'À faire',
-            statusColor: 'b-gray',
-            description: 'Rédaction des spécifications fonctionnelles détaillées.',
-            acceptanceCriteria: ['Spécs validées', 'Cahier des charges complet'],
-            estimatedDuration: 20,
-            estimatedCost: 3000000,
-            inScope: 'Spécifications détaillées',
-            outOfScope: 'Développement'
-          }
-        ]
-      },
-      {
-        id: '1.3',
-        code: '1.3',
-        name: 'Développement & intégration',
-        status: 'À faire',
-        statusColor: 'b-gray',
-        children: []
-      },
-      {
-        id: '1.4',
-        code: '1.4',
-        name: 'Formation & déploiement',
-        status: 'À faire',
-        statusColor: 'b-gray',
-        children: []
-      },
-      {
-        id: '1.5',
-        code: '1.5',
-        name: 'Clôture & bilan',
-        status: 'À faire',
-        statusColor: 'b-gray',
-        children: []
-      }
-    ]
-  });
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const selectedNode = useMemo(() => wbs.find(w => w.id_wbs === selectedNodeId) || null, [wbs, selectedNodeId]);
+  const activitesDuNoeud = useMemo(
+    () => (selectedNode ? activites.filter(a => a.id_wbs === selectedNode.id_wbs) : []),
+    [activites, selectedNode]
+  );
 
-  const toggleExpanded = (nodeId: string) => {
-    const newExpanded = new Set(expandedNodes);
-    if (newExpanded.has(nodeId)) {
-      newExpanded.delete(nodeId);
-    } else {
-      newExpanded.add(nodeId);
-    }
-    setExpandedNodes(newExpanded);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draft, setDraft] = useState<{ id?: string; id_activite: string } & typeof emptyDraft>({ ...emptyDraft, id_activite: '' });
+  const [isSaving, setIsSaving] = useState(false);
+
+  const openAdd = (activiteId: string) => {
+    setDraft({ ...emptyDraft, id_activite: activiteId });
+    setIsOpen(true);
   };
 
-  const selectNode = (node: WBSNode) => {
-    setSelectedNode(node);
+  const openEdit = (cout: Cout) => {
+    setDraft({
+      id: cout.id_cout,
+      id_activite: cout.id_activite || '',
+      poste_budgetaire: cout.poste_budgetaire,
+      montant_estime: String(cout.montant_estime ?? ''),
+      montant_reel: cout.montant_reel != null ? String(cout.montant_reel) : '',
+      devise: cout.devise || 'XOF',
+      type_cout: cout.type_cout || 'Général'
+    });
+    setIsOpen(true);
   };
 
-  const NodeComponent = ({ node, level = 0 }: { node: WBSNode; level?: number }) => {
-    const isExpanded = expandedNodes.has(node.id);
-    const isSelected = selectedNode?.id === node.id;
-    const hasChildren = node.children && node.children.length > 0;
+  const handleSave = async () => {
+    const poste = draft.poste_budgetaire.trim();
+    if (!poste) return;
 
-    return (
-      <div className="mb-0.5">
-        <div
-          className={`flex items-center gap-1.5 p-1.5 rounded-md cursor-pointer border border-transparent transition-colors ${
-            isSelected ? 'bg-blue-50 border-blue-300' : 'hover:bg-gray-50'
-          }`}
-          onClick={() => selectNode(node)}
-        >
-          <div
-            className="w-4 h-4 rounded border border-gray-300 bg-gray-100 flex items-center justify-center cursor-pointer text-xs font-medium text-blue-900"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (hasChildren) toggleExpanded(node.id);
-            }}
-          >
-            {hasChildren ? (isExpanded ? '−' : '+') : '·'}
-          </div>
-          <span className={`px-1 py-0.5 rounded text-xs font-medium font-mono ${
-            node.code.includes('.') ? 'bg-gray-100 text-gray-700' : 'bg-blue-100 text-blue-800'
-          }`}>
-            {node.code}
-          </span>
-          <span className={`flex-1 text-sm font-medium truncate min-w-0 ${
-            level === 0 ? 'text-blue-900 text-base' : 'text-blue-900'
-          }`}>
-            {node.name}
-          </span>
-          <div className="flex items-center gap-1 shrink-0">
-            <Badge variant={node.statusColor as any}>{node.status}</Badge>
-            {node.assignee && (
-              <span className="text-xs text-gray-500 ml-1">{node.assignee}</span>
-            )}
-            {isSelected && (
-              <div className="flex gap-0.5 opacity-100">
-                <button className="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50">
-                  <Icon name="edit" size="xs" />
-                </button>
-                <button className="w-5 h-5 rounded border border-gray-300 bg-white flex items-center justify-center hover:bg-gray-50">
-                  <Icon name="plus" size="xs" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {hasChildren && isExpanded && (
-          <div className="ml-5 border-l border-dashed border-gray-300 pl-2">
-            {node.children!.map((child) => (
-              <NodeComponent key={child.id} node={child} level={level + 1} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const getKPIs = () => {
-    const nodes = flattenNodes(wbsData);
-    const deliverables = nodes.filter(n => n.code.split('.').length === 2).length;
-    const lots = nodes.filter(n => n.code.split('.').length === 3).length;
-    const tasks = nodes.filter(n => n.code.split('.').length > 3).length;
-    const unassigned = nodes.filter(n => !n.assignee).length;
-
-    return { deliverables, lots, tasks, unassigned };
-  };
-
-  const flattenNodes = (node: WBSNode): WBSNode[] => {
-    const result = [node];
-    if (node.children) {
-      node.children.forEach(child => {
-        result.push(...flattenNodes(child));
+    setIsSaving(true);
+    try {
+      await upsertCout({
+        id_cout: draft.id || `cout-${Date.now()}`,
+        poste_budgetaire: poste,
+        montant_estime: draft.montant_estime ? Number(draft.montant_estime) : 0,
+        montant_reel: draft.montant_reel ? Number(draft.montant_reel) : undefined,
+        devise: draft.devise,
+        type_cout: draft.type_cout,
+        id_activite: draft.id_activite || undefined
       });
+      setIsOpen(false);
+      notifySuccess('Ligne de coût enregistrée.');
+    } catch (err) {
+      notifyError(formatApiError(err));
+    } finally {
+      setIsSaving(false);
     }
-    return result;
   };
 
-  const kpis = getKPIs();
+  const handleDelete = async (cout: Cout) => {
+    const ok = await confirm({ message: `Supprimer la ligne de coût "${cout.poste_budgetaire}" ? Cette action est irréversible.` });
+    if (!ok) return;
+    removeCout(cout.id_cout);
+  };
+
+  const countLabel = (nodeId: string) => {
+    const activiteIds = new Set(activites.filter(a => a.id_wbs === nodeId).map(a => a.id_activites));
+    const count = couts.filter(c => c.id_activite && activiteIds.has(c.id_activite)).length;
+    return count > 0 ? `${count} coût${count > 1 ? 's' : ''}` : null;
+  };
 
   return (
-    <div className="flex min-h-screen bg-gray-100 text-sm">
-      {/* Sidebar is handled by Layout */}
+    <div className="flex h-full flex-col bg-gray-50 text-sm">
+      {NotificationToast}
 
-      <div className="flex-1 flex flex-col">
-        {/* Body */}
-        <div className="flex-1 grid grid-cols-[1fr_300px] min-h-0">
-          {/* WBS Panel */}
-          <div className="overflow-y-auto p-4">
-            {/* KPIs */}
-            {/* <div className="grid grid-cols-4 gap-2 mb-3.5">
-              <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center gap-3">
-                <div className="w-0.75 h-7 bg-blue-600 rounded"></div>
-                <div>
-                  <div className="text-xl font-medium text-blue-900">{kpis.deliverables}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Livrables majeurs</div>
-                </div>
+      <div className="flex-1 grid grid-cols-[1fr_380px] min-h-0">
+        <div className="overflow-y-auto p-4">
+          <WbsTreeNav selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} countLabel={countLabel} />
+        </div>
+
+        <div className="border-l border-gray-200 bg-white flex flex-col overflow-y-auto">
+          {selectedNode ? (
+            <>
+              <div className="p-3 border-b border-gray-100 shrink-0">
+                <div className="text-sm font-medium text-blue-900">{selectedNode.code_wbs} — {selectedNode.nom_travail}</div>
+                <div className="text-xs text-gray-500 mt-0.5">Coûts des activités de ce lot</div>
               </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center gap-3">
-                <div className="w-0.75 h-7 bg-green-600 rounded"></div>
-                <div>
-                  <div className="text-xl font-medium text-blue-900">{kpis.lots}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Lots de travaux</div>
-                </div>
-              </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center gap-3">
-                <div className="w-0.75 h-7 bg-amber-600 rounded"></div>
-                <div>
-                  <div className="text-xl font-medium text-blue-900">{kpis.tasks}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Tâches / activités</div>
-                </div>
-              </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center gap-3">
-                <div className="w-0.75 h-7 bg-red-600 rounded"></div>
-                <div>
-                  <div className="text-xl font-medium text-red-600">{kpis.unassigned}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Non assignés</div>
-                </div>
-              </div>
-            </div> */}
 
-            {/* Scope Bar */}
-            <div className="bg-white border border-gray-200 rounded-lg p-3 mb-3.5 flex items-center gap-4">
-                <h3>Estimation du budget</h3>
-            </div>
-
-            {/* Tree */}
-            <div className="text-sm">
-              <NodeComponent node={wbsData} />
-            </div>
-          </div>
-
-          {/* Detail Panel */}
-          <div className="border-l border-gray-200 bg-white flex flex-col overflow-y-auto">
-            {selectedNode ? (
-              <>
-                <div className="p-3 border-b border-gray-100 flex items-center justify-between shrink-0">
-                  <div>
-                    <div className="text-sm font-medium text-blue-900">{selectedNode.code} — {selectedNode.name}</div>
-                    <div className="text-xs text-gray-500 mt-0.5">Lot de travaux sélectionné</div>
-                  </div>
-                  <Badge variant={selectedNode.statusColor as any}>{selectedNode.status}</Badge>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-3">
-                  <div className="mb-4">
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 pb-1 border-b border-gray-100">
-                      Identité du lot
-                    </div>
-                    <div className="mb-3">
-                      <label className="block text-xs text-gray-500 mb-1">Intitulé</label>
-                      <InputText value={selectedNode.name} className="w-full" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Code WBS</label>
-                        <InputText value={selectedNode.code} className="w-full font-mono bg-gray-50" readOnly />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Responsable</label>
-                        <div className="flex items-center gap-1.5 h-8 border border-gray-300 rounded px-2 bg-white">
-                          <div className="w-4.5 h-4.5 rounded-full bg-green-600 flex items-center justify-center text-xs font-medium text-white">
-                            {selectedNode.assignee?.[0] || '?'}
+              <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                {activitesDuNoeud.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    Ajoutez d'abord une activité à ce lot dans WBS &amp; Activités avant d'y rattacher un coût.
+                  </p>
+                ) : (
+                  activitesDuNoeud.map((activite) => {
+                    const coutsActivite = couts.filter(c => c.id_activite === activite.id_activites);
+                    return (
+                      <div key={activite.id_activites}>
+                        <div className="flex items-center justify-between mb-2 pb-1 border-b border-gray-100">
+                          <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate">
+                            {activite.code_activite} — {activite.nom_activite}
+                          </span>
+                          <Button size="sm" onClick={() => openAdd(activite.id_activites)}>
+                            <Icon name="plus" size="xs" />
+                            Ajouter
+                          </Button>
+                        </div>
+                        {coutsActivite.length === 0 ? (
+                          <p className="text-xs text-gray-500">Aucun coût pour cette activité.</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {coutsActivite.map((cout) => (
+                              <div key={cout.id_cout} className="flex justify-between items-start gap-2 p-2 bg-gray-50 rounded border border-gray-200">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold text-blue-900 truncate">{cout.poste_budgetaire}</p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Badge size="sm" variant="info">{cout.type_cout}</Badge>
+                                    <span className="text-xs text-gray-600">
+                                      {(cout.montant_estime || 0).toLocaleString('fr-FR')} {cout.devise}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex gap-1 shrink-0">
+                                  <IconButton variant="secondary" size="sm" icon="edit" tooltip="Modifier" onClick={() => openEdit(cout)} />
+                                  <IconButton variant="danger" size="sm" icon="delete" tooltip="Supprimer" onClick={() => handleDelete(cout)} />
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          <span className="text-sm text-blue-900">{selectedNode.assignee || 'Non assigné'}</span>
-                        </div>
+                        )}
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="mb-4">
-
-
-                  </div>
-
-                  <div className="mb-4">
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 pb-1 border-b border-gray-100">
-                      Estimation & périmètre
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mb-3">
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Durée estimée</label>
-                        <div className="flex gap-1">
-                          <InputText value={selectedNode.estimatedDuration?.toString() || ''} className="w-12 text-center" />
-                          <select className="h-8 border border-gray-300 rounded px-1.5 text-sm text-blue-900 bg-white">
-                            <option>jours</option>
-                            <option>semaines</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Coût estimé (XOF)</label>
-                        <InputText value={selectedNode.estimatedCost?.toLocaleString() || ''} />
-                      </div>
-                    </div>
-                    <div className="mb-3">
-                      <label className="block text-xs text-gray-500 mb-1">Dans le périmètre (inclus)</label>
-                      <textarea
-                        className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm text-blue-900 bg-white min-h-10.5 resize-none"
-                        value={selectedNode.inScope || ''}
-                        readOnly
-                      />
-                    </div>
-                    <div className="mb-3">
-                      <label className="block text-xs text-gray-500 mb-1">Hors périmètre (exclus)</label>
-                      <textarea
-                        className="w-full border border-red-300 rounded px-2 py-1.5 text-sm text-blue-900 bg-white min-h-10.5 resize-none"
-                        value={selectedNode.outOfScope || ''}
-                        readOnly
-                      />
-                    </div>
-                    <div className="bg-blue-50 border border-blue-300 rounded p-2 text-xs text-blue-800">
-                      La règle 100% exige que chaque livrable soit couvert sans chevauchement. Vérifiez l'exclusivité avec les lots connexes.
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-3 border-t border-gray-100 flex gap-1.5">
-                  <Button className="flex-1 justify-center">Annuler</Button>
-                  <Button variant="primary" className="flex-1 justify-center">
-                    <Icon name="check" size="sm" />
-                    Enregistrer
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-gray-500">
-                Sélectionnez un élément dans l'arbre WBS
+                    );
+                  })
+                )}
               </div>
-            )}
-          </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-gray-500 text-center px-4">
+              Sélectionnez un élément dans l'arbre WBS
+            </div>
+          )}
         </div>
       </div>
+
+      <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} title={draft.id ? 'Modifier la ligne de coût' : 'Ajouter une ligne de coût'} size="lg">
+        <div className="grid grid-cols-2 gap-4">
+          <InputText label="Poste budgétaire" value={draft.poste_budgetaire} onChange={(e) => setDraft(d => ({ ...d, poste_budgetaire: e.target.value }))} />
+          <InputSelect
+            label="Type"
+            value={draft.type_cout}
+            onChange={(e) => setDraft(d => ({ ...d, type_cout: e.target.value }))}
+            options={TYPES_COUT.map((type) => ({ value: type, label: type }))}
+          />
+          <InputText label="Montant estimé (XOF)" type="number" value={draft.montant_estime} onChange={(e) => setDraft(d => ({ ...d, montant_estime: e.target.value }))} />
+          <InputText label="Montant réel (XOF)" type="number" value={draft.montant_reel} onChange={(e) => setDraft(d => ({ ...d, montant_reel: e.target.value }))} />
+        </div>
+        <ModalFooter>
+          <Button variant="secondary" onClick={() => setIsOpen(false)}>Annuler</Button>
+          <Button variant="primary" onClick={handleSave} loading={isSaving}>Enregistrer</Button>
+        </ModalFooter>
+      </Modal>
+
+      {ConfirmDialog}
     </div>
   );
 }

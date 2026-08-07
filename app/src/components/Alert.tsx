@@ -7,7 +7,8 @@ export type AlertVariant = 'success' | 'warning' | 'error' | 'info';
 export interface AlertProps {
   variant?: AlertVariant;
   title?: string;
-  message: string;
+  message?: string;
+  children?: React.ReactNode;
   icon?: IconName;
   dismissible?: boolean;
   onDismiss?: () => void;
@@ -32,6 +33,7 @@ export const Alert: React.FC<AlertProps> = ({
   variant = 'info',
   title,
   message,
+  children,
   icon,
   dismissible = false,
   onDismiss,
@@ -55,9 +57,9 @@ export const Alert: React.FC<AlertProps> = ({
             {title}
           </h4>
         )}
-        <p className="text-sm">
-          {message}
-        </p>
+        <div className="text-sm">
+          {message || children}
+        </div>
       </div>
 
       {dismissible && onDismiss && (

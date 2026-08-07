@@ -4,12 +4,15 @@ import { Alert, Button, InputText } from '~/src/components';
 import { useAuth } from '~/src/context/AuthContext';
 import { formatApiError } from '~/src/lib/api';
 
-export default function Login() {
+export default function Inscription() {
   const navigate = useNavigate();
-  const { connexion, isAuthenticated, isLoading } = useAuth();
+  const { connexion: seConnecter, inscription: sInscrire, isAuthenticated, isLoading } = useAuth();
 
+  const [nom, setNom] = useState('');
+  const [prenom, setPrenom] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -20,10 +23,17 @@ export default function Login() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
+
+    if (password !== passwordConfirmation) {
+      setError('Les mots de passe ne correspondent pas.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await connexion(email, password);
+      await sInscrire({ nom, prenom, email, password, password_confirmation: passwordConfirmation });
+      await seConnecter(email, password);
       navigate('/');
     } catch (err) {
       setError(formatApiError(err));
@@ -33,16 +43,36 @@ export default function Login() {
   };
 
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-gradient-to-b from-white to-gray-50 px-4">
+    <div className="flex h-screen w-full items-center justify-center bg-gradient-to-b from-white to-gray-50 px-4 py-8">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-4xl font-bold text-slate-900">TERMINATOR</h1>
-          <p className="mt-2 text-slate-600">Connectez-vous a votre espace de gestion de projets</p>
+          <p className="mt-2 text-slate-600">Creez votre compte pour gerer vos projets</p>
         </div>
 
         <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && <Alert variant="error" message={error} />}
+
+            <div className="flex gap-4">
+              <InputText
+                label="Prenom"
+                placeholder="Mamadou"
+                value={prenom}
+                onChange={(event) => setPrenom(event.target.value)}
+                required
+                fullWidth
+              />
+
+              <InputText
+                label="Nom"
+                placeholder="Toure"
+                value={nom}
+                onChange={(event) => setNom(event.target.value)}
+                required
+                fullWidth
+              />
+            </div>
 
             <InputText
               type="email"
@@ -66,16 +96,27 @@ export default function Login() {
               fullWidth
             />
 
+            <InputText
+              type="password"
+              label="Confirmer le mot de passe"
+              placeholder="********"
+              icon="eye-off"
+              value={passwordConfirmation}
+              onChange={(event) => setPasswordConfirmation(event.target.value)}
+              required
+              fullWidth
+            />
+
             <Button type="submit" variant="primary" fullWidth loading={isSubmitting}>
-              Se connecter
+              Creer mon compte
             </Button>
           </form>
         </div>
 
         <p className="mt-6 text-center text-sm text-slate-600">
-          Pas encore de compte ?{' '}
-          <Link to="/inscription" className="font-medium text-[#1e3a5f] hover:underline">
-            Creer un compte
+          Deja un compte ?{' '}
+          <Link to="/login" className="font-medium text-[#1e3a5f] hover:underline">
+            Se connecter
           </Link>
         </p>
       </div>
