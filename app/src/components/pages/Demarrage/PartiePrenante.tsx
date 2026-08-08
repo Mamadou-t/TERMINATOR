@@ -430,9 +430,9 @@ export default function PartiesPrenantes() {
 
         {/* Main Content */}
         {activeTab === 'registre' && (
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
             {/* Table */}
-            <Card className="col-span-3">
+            <Card className="lg:col-span-3">
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                 <h3 className="font-semibold text-gray-900">{filteredStakeholders.length} parties prenantes identifiées</h3>
 
@@ -702,7 +702,7 @@ export default function PartiesPrenantes() {
         title="Ajouter une partie prenante"
         size="lg"
       >
-        <div className="grid grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <InputText label="Nom" value={draft.name} onChange={(e) => setDraft(d => ({ ...d, name: e.target.value }))} />
           <InputText label="Organisation" value={draft.org} onChange={(e) => setDraft(d => ({ ...d, org: e.target.value }))} />
           <InputText label="Rôle" value={draft.role} onChange={(e) => setDraft(d => ({ ...d, role: e.target.value }))} />
@@ -768,7 +768,7 @@ export default function PartiesPrenantes() {
         title="Modifier la partie prenante"
         size="lg"
       >
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <InputText label="Nom" value={draft.name} onChange={(e) => setDraft(d => ({ ...d, name: e.target.value }))} />
           <InputText label="Organisation" value={draft.org} onChange={(e) => setDraft(d => ({ ...d, org: e.target.value }))} />
           <InputText label="Rôle" value={draft.role} onChange={(e) => setDraft(d => ({ ...d, role: e.target.value }))} />

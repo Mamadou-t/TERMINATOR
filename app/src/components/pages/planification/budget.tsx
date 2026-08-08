@@ -86,12 +86,12 @@ export default function Budget() {
     <div className="flex h-full flex-col bg-gray-50 text-sm">
       {NotificationToast}
 
-      <div className="flex-1 grid grid-cols-[1fr_380px] min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_380px] min-h-0 overflow-y-auto lg:overflow-hidden">
         <div className="overflow-y-auto p-4">
           <WbsTreeNav selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} countLabel={countLabel} />
         </div>
 
-        <div className="border-l border-gray-200 bg-white flex flex-col overflow-y-auto">
+        <div className="border-t lg:border-l lg:border-t-0 border-gray-200 bg-white flex flex-col overflow-y-auto">
           {selectedNode ? (
             <>
               <div className="p-3 border-b border-gray-100 shrink-0">

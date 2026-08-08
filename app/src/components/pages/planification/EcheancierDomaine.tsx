@@ -444,9 +444,9 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
           <DureesGrid wbs={wbs} activites={activites} rootNodes={rootNodes} expandedNodes={expandedNodes} onToggle={toggleExpanded} selectedActiviteId={selectedActiviteId} onSelectActivite={setSelectedActiviteId} onEdit={openDureeModal} />
         </div>
       ) : (
-        <div className="flex-1 grid grid-cols-[1fr_360px] min-h-0 border-t border-gray-200">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_360px] min-h-0 overflow-y-auto lg:overflow-hidden border-t border-gray-200">
           {treePanel}
-          <div className="border-l border-gray-200 bg-white flex flex-col overflow-y-auto">{detailPanel()}</div>
+          <div className="border-t lg:border-l lg:border-t-0 border-gray-200 bg-white flex flex-col overflow-y-auto">{detailPanel()}</div>
         </div>
       )}
 
