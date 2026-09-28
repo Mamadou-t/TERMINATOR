@@ -1,0 +1,16 @@
+# Config Nixpacks pour l'API Django (Terminator) sur Dokploy.
+# Django 6 exige Python >= 3.12.
+
+[phases.setup]
+nixPkgs = ["python312", "gcc"]
+
+[phases.install]
+cmds = [
+  "python -m venv --copies /opt/venv",
+  ". /opt/venv/bin/activate && pip install --upgrade pip",
+  ". /opt/venv/bin/activate && pip install -r requirements.txt"
+]
+
+[start]
+# Migrations + statiques (admin/DRF) puis gunicorn.
+cmd = ". /opt/venv/bin/activate && python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi --bind 0.0.0.0:8000 --workers 3 --timeout 120 --log-file -"
