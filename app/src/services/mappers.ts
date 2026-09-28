@@ -49,7 +49,12 @@ export const mapProjet = (payload: Record<string, unknown> | null | undefined): 
   id_charte: toString(payload?.id_charte ?? payload?.charte ?? ''),
   id_wbs: toString(payload?.id_wbs ?? payload?.wbs ?? ''),
   id_perimetre: toString(payload?.id_perimetre ?? payload?.perimetre ?? ''),
-  id_projet_1: toString(payload?.projet_parent ?? payload?.id_projet_1 ?? '') || undefined
+  id_projet_1: toString(payload?.projet_parent ?? payload?.id_projet_1 ?? '') || undefined,
+  cree_le: toString(payload?.cree_le),
+  ordre: toNumber(payload?.ordre) ?? 0,
+  taux_frais: toNumber(payload?.taux_frais) ?? 0,
+  taux_majorations: toNumber(payload?.taux_majorations) ?? 0,
+  taux_marge_aleas: toNumber(payload?.taux_marge_aleas) ?? 0
 });
 
 export const mapCharte = (payload: Record<string, unknown> | null | undefined): Charte => ({
@@ -67,6 +72,7 @@ export const mapCharte = (payload: Record<string, unknown> | null | undefined): 
   type_projet: toString(payload?.type_projet ?? ''),
   sponsor_ouvrage: toString(payload?.sponsor_ouvrage ?? ''),
   chef_projet: toString(payload?.chef_projet ?? ''),
+  duree_estimative: toNumber(payload?.duree_estimative),
   objectif_general: toString(payload?.objectif_general ?? ''),
   objectifs_specifiques: toString(payload?.objectifs_specifiques ?? ''),
   signature_image: toString(payload?.signature_image ?? ''),
@@ -78,10 +84,13 @@ export const mapCharte = (payload: Record<string, unknown> | null | undefined): 
 export const mapLigneBudgetaire = (payload: Record<string, unknown> | null | undefined): LigneBudgetaire => ({
   id_ligne: toString(payload?.id_ligne ?? payload?.id ?? ''),
   designation: toString(payload?.designation ?? ''),
+  unite: toString(payload?.unite ?? ''),
   prix_unitaire: toNumber(payload?.prix_unitaire) ?? 0,
   quantite: toNumber(payload?.quantite) ?? 0,
   total: toNumber(payload?.total),
   ordre: toNumber(payload?.ordre),
+  phase: toString(payload?.phase ?? '') || undefined,
+  id_tache_parent: toString(payload?.tache_parent ?? payload?.id_tache_parent ?? '') || undefined,
   id_charte: toString(payload?.charte ?? payload?.id_charte ?? '') || undefined
 });
 
@@ -146,7 +155,8 @@ export const mapWbs = (payload: Record<string, unknown> | null | undefined): Wbs
   date_fin_prevue: toDate(payload?.date_fin_prevue ?? ''),
   duree_estimee: toNumber(payload?.duree_estimee),
   id_wbs_1: toString(payload?.id_wbs_1 ?? payload?.wbs_parent ?? ''),
-  id_projet: toString(payload?.id_projet ?? payload?.projet ?? '')
+  id_projet: toString(payload?.id_projet ?? payload?.projet ?? ''),
+  ordre: toNumber(payload?.ordre) ?? 0
 });
 
 export const mapActivite = (payload: Record<string, unknown> | null | undefined): Activite => ({
@@ -161,7 +171,9 @@ export const mapActivite = (payload: Record<string, unknown> | null | undefined)
   statut_activite: toString(payload?.statut_activite ?? 'À faire') as Activite['statut_activite'],
   predecesseurs: toString(payload?.predecesseurs ?? ''),
   type_dependance: toString(payload?.type_dependance ?? ''),
-  id_wbs: toString(payload?.id_wbs ?? payload?.wbs ?? '')
+  id_wbs: toString(payload?.id_wbs ?? payload?.wbs ?? ''),
+  id_activite_parent: toString(payload?.activite_parent ?? payload?.id_activite_parent ?? '') || undefined,
+  ordre: toNumber(payload?.ordre) ?? 0
 });
 
 export const mapLivrable = (payload: Record<string, unknown> | null | undefined): Livrable => ({
@@ -204,9 +216,11 @@ export const mapRessource = (payload: Record<string, unknown> | null | undefined
   nom_ressource: toString(payload?.nom_ressource ?? payload?.nom ?? ''),
   role: toString(payload?.role ?? ''),
   type_ressource: toString(payload?.type_ressource ?? ''),
+  quantite: toNumber(payload?.quantite) ?? 1,
   cout_unitaire: toNumber(payload?.cout_unitaire) ?? 0,
   unite_mesure: toString(payload?.unite_mesure ?? ''),
-  id_activites: toString(payload?.id_activites ?? payload?.activites ?? '')
+  // Le backend expose la FK sous le nom du champ modele : "activite" (singulier).
+  id_activites: toString(payload?.activite ?? payload?.id_activites ?? payload?.activites ?? '')
 });
 
 export const mapApprovisionnement = (payload: Record<string, unknown> | null | undefined): Approvisionnement => ({

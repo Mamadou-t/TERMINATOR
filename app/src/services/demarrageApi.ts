@@ -1,4 +1,4 @@
-import { apiRequest } from '../lib/api';
+import { apiRequest, apiRequestList } from '../lib/api';
 import { mapCharte, mapLigneBudgetaire, mapLigneCalendrier, mapLivrable, mapPartiePrenante, mapProjet } from './mappers';
 import type { Charte, LigneBudgetaire, LigneCalendrier, Livrable, PartiePrenante, Projet, ProjetData } from '../types';
 
@@ -22,12 +22,18 @@ const projetPayload = (projet: Projet) => ({
   date_fin_prevue: projet.date_fin_prevue || projet.date_creation,
   statut_projet: projet.statut_projet,
   budget_total: projet.budget_total ?? 0,
-  projet_parent: projet.id_projet_1 || null
+  projet_parent: projet.id_projet_1 || null,
+  ordre: projet.ordre ?? 0,
+  taux_frais: projet.taux_frais ?? 0,
+  taux_majorations: projet.taux_majorations ?? 0,
+  taux_marge_aleas: projet.taux_marge_aleas ?? 0
 });
 
 export const listerProjets = async (): Promise<Projet[]> => {
-  const payload = await apiRequest<{ results?: unknown[] } | unknown[]>('/projets/');
-  return asList(payload as { results?: unknown[] } | unknown[]).map((entry) => mapProjet(entry as Record<string, unknown>));
+  // Récupère toutes les pages : sinon au-delà de PAGE_SIZE, des projets
+  // (notamment les plus récents) n'apparaissent pas au rechargement.
+  const rows = await apiRequestList<Record<string, unknown>>('/projets/');
+  return rows.map((entry) => mapProjet(entry));
 };
 
 export const creerOuMajProjet = async (projet: Projet): Promise<Projet> => {
@@ -57,6 +63,12 @@ export const supprimerProjet = async (id: string): Promise<void> => {
   await apiRequest(`/projets/${id}/`, { method: 'DELETE' });
 };
 
+// #13 : duplication serveur (deep-clone) d'un projet et de toutes ses donnees.
+export const dupliquerProjet = async (id: string): Promise<Projet> => {
+  const result = await apiRequest<Record<string, unknown>>(`/projets/${id}/dupliquer/`, { method: 'POST' });
+  return mapProjet(result);
+};
+
 // ===== CHARTE =====
 
 const chartePayload = (charte: Charte) => ({
@@ -73,6 +85,7 @@ const chartePayload = (charte: Charte) => ({
   type_projet: charte.type_projet || '',
   sponsor_ouvrage: charte.sponsor_ouvrage || '',
   chef_projet: charte.chef_projet || '',
+  duree_estimative: charte.duree_estimative ?? null,
   objectif_general: charte.objectif_general || '',
   objectifs_specifiques: charte.objectifs_specifiques || '',
   signature_image: charte.signature_image || '',
@@ -116,9 +129,13 @@ export const obtenirCharte = async (charteId: string | undefined | null): Promis
 
 const lignePayload = (ligne: LigneBudgetaire, charteId: string) => ({
   designation: ligne.designation || '',
+  unite: ligne.unite || '',
   prix_unitaire: ligne.prix_unitaire ?? 0,
   quantite: ligne.quantite ?? 0,
   ordre: ligne.ordre ?? 0,
+  phase: ligne.phase || '',
+  // tache_parent doit etre un id backend ou null (les ids locaux sont ignores).
+  tache_parent: ligne.id_tache_parent && isBackendId(ligne.id_tache_parent) ? ligne.id_tache_parent : null,
   charte: charteId
 });
 

@@ -42,6 +42,8 @@ export { SignatureImport } from './SignatureImport';
 export { ProcessusNav } from './ProcessusNav';
 
 export { KpiCard } from './KpiCard';
+export { EditableCell } from './EditableCell';
+export type { EditableCellProps } from './EditableCell';
 
 export { DomaineHeader } from './DomaineHeader';
 

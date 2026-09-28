@@ -1,179 +1,182 @@
-import { useMemo, useState } from 'react';
-import { Badge, Button, Icon, IconButton, InputText, Modal, ModalFooter } from '../../index';
-import { InputSelect } from '../../InputSelect';
+import { useMemo } from 'react';
+import { Card, CardContent, CardHeader, InputText, KpiCard } from '../../';
 import { useProjet } from '../../../context/ProjetContext';
-import { useConfirm } from '../../../hooks/useConfirm';
 import { useNotification } from '../../../hooks/useNotification';
 import { formatApiError } from '../../../lib/api';
-import { WbsTreeNav } from './WbsTreeNav';
-import type { Cout } from '../../../types';
+import { creerOuMajProjet } from '../../../services/demarrageApi';
+import { TYPES_RESSOURCE } from '../../../types';
 
-const TYPES_COUT = ["Main d'œuvre", 'Matériaux', 'Sous-traitance', 'Frais généraux', 'Logiciel', 'Infrastructure', 'Général'];
-
-const emptyDraft = { poste_budgetaire: '', montant_estime: '', montant_reel: '', devise: 'XOF', type_cout: 'Général' };
+const fmt = (v: number) => `${Math.round(v || 0).toLocaleString('fr-FR')} XOF`;
 
 export default function Budget() {
-  const { couts, activites, wbs, upsertCout, removeCout } = useProjet();
-  const { confirm, ConfirmDialog } = useConfirm();
+  const { ressources, projet, updateProjet } = useProjet();
   const { notifySuccess, notifyError, NotificationToast } = useNotification();
 
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const selectedNode = useMemo(() => wbs.find(w => w.id_wbs === selectedNodeId) || null, [wbs, selectedNodeId]);
-  const activitesDuNoeud = useMemo(
-    () => (selectedNode ? activites.filter(a => a.id_wbs === selectedNode.id_wbs) : []),
-    [activites, selectedNode]
+  // Déboursé sec = somme (quantité × coût unitaire) des ressources, par type.
+  const parType = useMemo(
+    () => TYPES_RESSOURCE.map((type) => ({
+      type,
+      montant: ressources
+        .filter((r) => r.type_ressource === type)
+        .reduce((s, r) => s + (r.quantite ?? 1) * (r.cout_unitaire || 0), 0)
+    })),
+    [ressources]
+  );
+  const autres = useMemo(
+    () => ressources
+      .filter((r) => !(TYPES_RESSOURCE as readonly string[]).includes(r.type_ressource))
+      .reduce((s, r) => s + (r.quantite ?? 1) * (r.cout_unitaire || 0), 0),
+    [ressources]
   );
 
-  const [isOpen, setIsOpen] = useState(false);
-  const [draft, setDraft] = useState<{ id?: string; id_activite: string } & typeof emptyDraft>({ ...emptyDraft, id_activite: '' });
-  const [isSaving, setIsSaving] = useState(false);
+  const deboursesSec = parType.reduce((s, t) => s + t.montant, 0) + autres;
 
-  const openAdd = (activiteId: string) => {
-    setDraft({ ...emptyDraft, id_activite: activiteId });
-    setIsOpen(true);
-  };
+  const tf = projet.taux_frais ?? 0;
+  const tm = projet.taux_majorations ?? 0;
+  const tma = projet.taux_marge_aleas ?? 0;
+  const frais = deboursesSec * tf / 100;
+  const majorations = deboursesSec * tm / 100;
+  const coutRevient = deboursesSec + frais + majorations;
+  const margeAleas = coutRevient * tma / 100;
+  const coutVente = coutRevient + margeAleas;
 
-  const openEdit = (cout: Cout) => {
-    setDraft({
-      id: cout.id_cout,
-      id_activite: cout.id_activite || '',
-      poste_budgetaire: cout.poste_budgetaire,
-      montant_estime: String(cout.montant_estime ?? ''),
-      montant_reel: cout.montant_reel != null ? String(cout.montant_reel) : '',
-      devise: cout.devise || 'XOF',
-      type_cout: cout.type_cout || 'Général'
-    });
-    setIsOpen(true);
-  };
-
-  const handleSave = async () => {
-    const poste = draft.poste_budgetaire.trim();
-    if (!poste) return;
-
-    setIsSaving(true);
+  const persistTaux = async () => {
     try {
-      await upsertCout({
-        id_cout: draft.id || `cout-${Date.now()}`,
-        poste_budgetaire: poste,
-        montant_estime: draft.montant_estime ? Number(draft.montant_estime) : 0,
-        montant_reel: draft.montant_reel ? Number(draft.montant_reel) : undefined,
-        devise: draft.devise,
-        type_cout: draft.type_cout,
-        id_activite: draft.id_activite || undefined
-      });
-      setIsOpen(false);
-      notifySuccess('Ligne de coût enregistrée.');
+      const saved = await creerOuMajProjet(projet);
+      updateProjet({ ...saved });
+      notifySuccess('Taux enregistrés.');
     } catch (err) {
       notifyError(formatApiError(err));
-    } finally {
-      setIsSaving(false);
     }
-  };
-
-  const handleDelete = async (cout: Cout) => {
-    const ok = await confirm({ message: `Supprimer la ligne de coût "${cout.poste_budgetaire}" ? Cette action est irréversible.` });
-    if (!ok) return;
-    removeCout(cout.id_cout);
-  };
-
-  const countLabel = (nodeId: string) => {
-    const activiteIds = new Set(activites.filter(a => a.id_wbs === nodeId).map(a => a.id_activites));
-    const count = couts.filter(c => c.id_activite && activiteIds.has(c.id_activite)).length;
-    return count > 0 ? `${count} coût${count > 1 ? 's' : ''}` : null;
   };
 
   return (
     <div className="flex h-full flex-col bg-gray-50 text-sm">
       {NotificationToast}
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_380px] min-h-0 overflow-y-auto lg:overflow-hidden">
-        <div className="overflow-y-auto p-4">
-          <WbsTreeNav selectedNodeId={selectedNodeId} onSelect={setSelectedNodeId} countLabel={countLabel} />
-        </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="mx-auto max-w-5xl space-y-4">
 
-        <div className="border-t lg:border-l lg:border-t-0 border-gray-200 bg-white flex flex-col overflow-y-auto">
-          {selectedNode ? (
-            <>
-              <div className="p-3 border-b border-gray-100 shrink-0">
-                <div className="text-sm font-medium text-blue-900">{selectedNode.code_wbs} — {selectedNode.nom_travail}</div>
-                <div className="text-xs text-gray-500 mt-0.5">Coûts des activités de ce lot</div>
-              </div>
+          {/* Synthèse */}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <KpiCard value={fmt(deboursesSec)} label="Déboursé sec" />
+            <KpiCard value={fmt(coutRevient)} label="Coût de revient" barColor="bg-blue-500" />
+            <KpiCard value={fmt(coutVente)} label="Coût de vente" barColor="bg-green-600" valueClassName="text-green-700" />
+          </div>
 
-              <div className="flex-1 overflow-y-auto p-3 space-y-4">
-                {activitesDuNoeud.length === 0 ? (
-                  <p className="text-sm text-gray-500">
-                    Ajoutez d'abord une activité à ce lot dans WBS &amp; Activités avant d'y rattacher un coût.
-                  </p>
-                ) : (
-                  activitesDuNoeud.map((activite) => {
-                    const coutsActivite = couts.filter(c => c.id_activite === activite.id_activites);
-                    return (
-                      <div key={activite.id_activites}>
-                        <div className="flex items-center justify-between mb-2 pb-1 border-b border-gray-100">
-                          <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate">
-                            {activite.code_activite} — {activite.nom_activite}
-                          </span>
-                          <Button size="sm" onClick={() => openAdd(activite.id_activites)}>
-                            <Icon name="plus" size="xs" />
-                            Ajouter
-                          </Button>
-                        </div>
-                        {coutsActivite.length === 0 ? (
-                          <p className="text-xs text-gray-500">Aucun coût pour cette activité.</p>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {coutsActivite.map((cout) => (
-                              <div key={cout.id_cout} className="flex justify-between items-start gap-2 p-2 bg-gray-50 rounded border border-gray-200">
-                                <div className="min-w-0">
-                                  <p className="text-xs font-semibold text-blue-900 truncate">{cout.poste_budgetaire}</p>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <Badge size="sm" variant="info">{cout.type_cout}</Badge>
-                                    <span className="text-xs text-gray-600">
-                                      {(cout.montant_estime || 0).toLocaleString('fr-FR')} {cout.devise}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="flex gap-1 shrink-0">
-                                  <IconButton variant="secondary" size="sm" icon="edit" tooltip="Modifier" onClick={() => openEdit(cout)} />
-                                  <IconButton variant="danger" size="sm" icon="delete" tooltip="Supprimer" onClick={() => handleDelete(cout)} />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-500 text-center px-4">
-              Sélectionnez un élément dans l'arbre WBS
-            </div>
-          )}
+          <div className="grid gap-4 lg:grid-cols-2">
+
+            {/* Déboursé sec par type */}
+            <Card padding="lg">
+              <CardHeader>
+                <h4 className="text-base font-semibold text-slate-900">Déboursé sec</h4>
+                <p className="mt-0.5 text-xs text-gray-500">Alimenté par la Gestion des ressources</p>
+              </CardHeader>
+              <CardContent>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {parType.map((t) => (
+                      <tr key={t.type} className="border-b border-gray-100">
+                        <td className="py-2 text-gray-700">{t.type}</td>
+                        <td className="py-2 text-right font-medium text-gray-900">{fmt(t.montant)}</td>
+                      </tr>
+                    ))}
+                    {autres > 0 && (
+                      <tr className="border-b border-gray-100">
+                        <td className="py-2 text-gray-500">Autres</td>
+                        <td className="py-2 text-right text-gray-600">{fmt(autres)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td className="pt-3 text-right text-sm font-semibold text-gray-700">Déboursé sec</td>
+                      <td className="pt-3 text-right text-base font-bold text-[#1e3a5f]">{fmt(deboursesSec)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </CardContent>
+            </Card>
+
+            {/* Cascade des coûts */}
+            <Card padding="lg">
+              <CardHeader>
+                <h4 className="text-base font-semibold text-slate-900">Cascade des coûts</h4>
+                <p className="mt-0.5 text-xs text-gray-500">Taux appliqués au niveau du projet</p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-1 text-sm">
+                  <Ligne label="Déboursé sec" value={fmt(deboursesSec)} />
+
+                  <TauxLigne
+                    label="Frais"
+                    taux={tf}
+                    montant={frais}
+                    onChange={(v) => updateProjet({ taux_frais: v })}
+                    onBlur={persistTaux}
+                  />
+                  <TauxLigne
+                    label="Majorations"
+                    taux={tm}
+                    montant={majorations}
+                    onChange={(v) => updateProjet({ taux_majorations: v })}
+                    onBlur={persistTaux}
+                  />
+
+                  <Ligne label="Coût de revient" value={fmt(coutRevient)} strong />
+
+                  <TauxLigne
+                    label="Marge & aléas"
+                    taux={tma}
+                    montant={margeAleas}
+                    onChange={(v) => updateProjet({ taux_marge_aleas: v })}
+                    onBlur={persistTaux}
+                  />
+
+                  <div className="mt-2 flex items-center justify-between rounded-md bg-green-50 px-3 py-2">
+                    <span className="font-semibold text-green-800">Coût de vente</span>
+                    <span className="text-base font-bold text-green-700">{fmt(coutVente)}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} title={draft.id ? 'Modifier la ligne de coût' : 'Ajouter une ligne de coût'} size="lg">
-        <div className="grid grid-cols-2 gap-4">
-          <InputText label="Poste budgétaire" value={draft.poste_budgetaire} onChange={(e) => setDraft(d => ({ ...d, poste_budgetaire: e.target.value }))} />
-          <InputSelect
-            label="Type"
-            value={draft.type_cout}
-            onChange={(e) => setDraft(d => ({ ...d, type_cout: e.target.value }))}
-            options={TYPES_COUT.map((type) => ({ value: type, label: type }))}
+function Ligne({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className={`flex items-center justify-between border-b border-gray-100 py-2 ${strong ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function TauxLigne({ label, taux, montant, onChange, onBlur }: {
+  label: string; taux: number; montant: number;
+  onChange: (v: number) => void; onBlur: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-gray-100 py-2">
+      <span className="text-gray-700">{label}</span>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <InputText
+            type="number"
+            value={String(taux)}
+            onChange={(e) => onChange(Number(e.target.value) || 0)}
+            onBlur={onBlur}
+            className="w-16 text-right"
+            size="sm"
           />
-          <InputText label="Montant estimé (XOF)" type="number" value={draft.montant_estime} onChange={(e) => setDraft(d => ({ ...d, montant_estime: e.target.value }))} />
-          <InputText label="Montant réel (XOF)" type="number" value={draft.montant_reel} onChange={(e) => setDraft(d => ({ ...d, montant_reel: e.target.value }))} />
+          <span className="text-xs text-gray-500">%</span>
         </div>
-        <ModalFooter>
-          <Button variant="secondary" onClick={() => setIsOpen(false)}>Annuler</Button>
-          <Button variant="primary" onClick={handleSave} loading={isSaving}>Enregistrer</Button>
-        </ModalFooter>
-      </Modal>
-
-      {ConfirmDialog}
+        <span className="w-28 text-right font-medium text-gray-900">{fmt(montant)}</span>
+      </div>
     </div>
   );
 }

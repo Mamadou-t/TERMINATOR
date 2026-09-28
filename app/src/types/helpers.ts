@@ -103,12 +103,29 @@ export const getNextWbsCode = (parent: Wbs, siblings: Wbs[]): string => {
 export const buildWbsTree = (items: Wbs[], parentId?: string): Wbs[] =>
   items
     .filter(w => (parentId ? w.id_wbs_1 === parentId : !w.id_wbs_1))
-    .sort((a, b) => a.code_wbs.localeCompare(b.code_wbs, undefined, { numeric: true }));
+    // Ordre manuel d'abord (#23), puis le code WBS (1, 1.1, 2...) en second.
+    .sort((a, b) => {
+      const oa = a.ordre ?? 0;
+      const ob = b.ordre ?? 0;
+      if (oa !== ob) return oa - ob;
+      return a.code_wbs.localeCompare(b.code_wbs, undefined, { numeric: true });
+    });
 
-export const buildProjetTree = (items: Projet[], parentId?: string): Projet[] =>
-  items
+export const buildProjetTree = (items: Projet[], parentId?: string): Projet[] => {
+  const isRoot = !parentId;
+  return items
     .filter(p => (parentId ? p.id_projet_1 === parentId : !p.id_projet_1))
-    .sort((a, b) => a.nom_projet.localeCompare(b.nom_projet, undefined, { numeric: true }));
+    // Ordre manuel d'abord ; à défaut : racines = plus récent en tête (#17),
+    // sous-projets = ordre de création (les nouveaux vont en bas, pas en haut).
+    .sort((a, b) => {
+      const oa = a.ordre ?? 0;
+      const ob = b.ordre ?? 0;
+      if (oa !== ob) return oa - ob;
+      const ka = a.cree_le || a.date_creation || '';
+      const kb = b.cree_le || b.date_creation || '';
+      return isRoot ? kb.localeCompare(ka) : ka.localeCompare(kb);
+    });
+};
 
 const NIVEAU_RISQUE_SCORE: Record<string, number> = {
   'Très Faible': 1, Faible: 2, Moyen: 3, Élevé: 4, 'Très Élevé': 5

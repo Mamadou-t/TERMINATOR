@@ -1,10 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, Icon, IconButton, InputText, Modal, ModalFooter } from '../../index';
 import { useProjet } from '../../../context/ProjetContext';
 import { useConfirm } from '../../../hooks/useConfirm';
 import { useNotification } from '../../../hooks/useNotification';
 import { formatApiError } from '../../../lib/api';
 import { buildWbsTree, getNextWbsCode } from '../../../types/helpers';
+import { sauverWbs, sauverActivite, isBackendId } from '../../../services/planificationApi';
 import type { Activite, Wbs as WbsEntity } from '../../../types';
 
 type Mode = 'wbs' | 'activites' | 'sequencer' | 'durees' | 'gantt';
@@ -39,11 +40,61 @@ const parseLiens = (raw?: string): Lien[] =>
 
 const serializeLiens = (liens: Lien[]): string => liens.map(l => `${l.id}:${l.type}:${l.delai}`).join(',');
 
+// Tri par ordre manuel (#23) puis code d'activité.
+const parOrdreActivite = (a: Activite, b: Activite) =>
+  (a.ordre ?? 0) - (b.ordre ?? 0) || a.code_activite.localeCompare(b.code_activite, undefined, { numeric: true });
+// Sous-activités directes d'une activité.
+const activiteEnfants = (activites: Activite[], parentId: string) =>
+  activites.filter(a => a.id_activite_parent === parentId).sort(parOrdreActivite);
+// Activités racines (sans parent) d'un lot WBS.
+const activitesRacinesWbs = (activites: Activite[], wbsId: string) =>
+  activites.filter(a => a.id_wbs === wbsId && !a.id_activite_parent).sort(parOrdreActivite);
+
 export default function EcheancierDomaine({ processus }: { processus?: string }) {
   const mode = modeFromProcessus(processus);
   const showActivites = mode !== 'wbs';
 
-  const { wbs, activites, projet, upsertWbs, removeWbs, upsertActivite, removeActivite } = useProjet();
+  const { wbs, activites, projet, data, setData, upsertWbs, removeWbs, upsertActivite, removeActivite } = useProjet();
+
+  // #23 : deplacement vertical (monter/descendre) d'un WBS dans sa fratrie.
+  const moveWbs = async (node: WbsEntity, dir: 'up' | 'down') => {
+    const siblings = buildWbsTree(wbs, node.id_wbs_1 || undefined);
+    const idx = siblings.findIndex(w => w.id_wbs === node.id_wbs);
+    const j = dir === 'up' ? idx - 1 : idx + 1;
+    if (j < 0 || j >= siblings.length) return;
+    const reordered = [...siblings];
+    [reordered[idx], reordered[j]] = [reordered[j], reordered[idx]];
+    const orderMap = new Map(reordered.map((w, i) => [w.id_wbs, i]));
+    const changed: WbsEntity[] = [];
+    const nextWbs = wbs.map(w => {
+      const pos = orderMap.get(w.id_wbs);
+      if (pos !== undefined && (w.ordre ?? 0) !== pos) { const u = { ...w, ordre: pos }; changed.push(u); return u; }
+      return w;
+    });
+    setData({ ...data, wbs: nextWbs });
+    await Promise.all(changed.filter(w => isBackendId(w.id_wbs)).map(w => sauverWbs(w, w.id_projet).catch(() => {})));
+  };
+
+  // #23 : deplacement vertical d'une activite / sous-activite dans sa fratrie.
+  const moveActivite = async (act: Activite, dir: 'up' | 'down') => {
+    const siblings = act.id_activite_parent
+      ? activiteEnfants(activites, act.id_activite_parent)
+      : activitesRacinesWbs(activites, act.id_wbs);
+    const idx = siblings.findIndex(a => a.id_activites === act.id_activites);
+    const j = dir === 'up' ? idx - 1 : idx + 1;
+    if (j < 0 || j >= siblings.length) return;
+    const reordered = [...siblings];
+    [reordered[idx], reordered[j]] = [reordered[j], reordered[idx]];
+    const orderMap = new Map(reordered.map((a, i) => [a.id_activites, i]));
+    const changed: Activite[] = [];
+    const nextActivites = activites.map(a => {
+      const pos = orderMap.get(a.id_activites);
+      if (pos !== undefined && (a.ordre ?? 0) !== pos) { const u = { ...a, ordre: pos }; changed.push(u); return u; }
+      return a;
+    });
+    setData({ ...data, activites: nextActivites });
+    await Promise.all(changed.filter(a => isBackendId(a.id_activites)).map(a => sauverActivite(a, a.id_wbs).catch(() => {})));
+  };
   const { confirm, ConfirmDialog } = useConfirm();
   const { notifySuccess, notifyError, NotificationToast } = useNotification();
 
@@ -54,10 +105,6 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
   const rootNodes = useMemo(() => buildWbsTree(wbs), [wbs]);
   const selectedNode = useMemo(() => wbs.find(w => w.id_wbs === selectedNodeId) || null, [wbs, selectedNodeId]);
   const selectedActivite = useMemo(() => activites.find(a => a.id_activites === selectedActiviteId) || null, [activites, selectedActiviteId]);
-  const activitesDuNoeud = useMemo(
-    () => (selectedNode ? activites.filter(a => a.id_wbs === selectedNode.id_wbs) : []),
-    [activites, selectedNode]
-  );
 
   // ===== WBS =====
   const [wbsModal, setWbsModal] = useState<{ open: boolean; mode: 'add' | 'edit'; parentId: string | null; id?: string; nom: string; description: string; code: string }>(
@@ -125,14 +172,14 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
   };
 
   // ===== ACTIVITES (définir) =====
-  const [actModal, setActModal] = useState<{ open: boolean; id?: string; nom: string; description: string; wbsId: string }>(
+  const [actModal, setActModal] = useState<{ open: boolean; id?: string; nom: string; description: string; wbsId: string; parentId?: string }>(
     { open: false, nom: '', description: '', wbsId: '' }
   );
 
+  // Code d'une activité racine, basé sur le code du lot WBS (ex. 1.2 -> 1.2.1).
   const nextActiviteCode = (node: WbsEntity) => {
     const prefix = `${node.code_wbs}.`;
-    const maxSuffix = activites
-      .filter(a => a.id_wbs === node.id_wbs)
+    const maxSuffix = activitesRacinesWbs(activites, node.id_wbs)
       .reduce((max, a) => {
         const n = a.code_activite.startsWith(prefix) ? parseInt(a.code_activite.slice(prefix.length), 10) : NaN;
         return Number.isNaN(n) ? max : Math.max(max, n);
@@ -140,8 +187,30 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
     return `${node.code_wbs}.${maxSuffix + 1}`;
   };
 
+  // Code d'une sous-activité, basé sur le code de l'activité parente.
+  const nextSousActiviteCode = (parent: Activite) => {
+    const prefix = `${parent.code_activite}.`;
+    const maxSuffix = activiteEnfants(activites, parent.id_activites)
+      .reduce((max, a) => {
+        const n = a.code_activite.startsWith(prefix) ? parseInt(a.code_activite.slice(prefix.length), 10) : NaN;
+        return Number.isNaN(n) ? max : Math.max(max, n);
+      }, 0);
+    return `${parent.code_activite}.${maxSuffix + 1}`;
+  };
+
   const openAddActivite = (node: WbsEntity) => setActModal({ open: true, nom: '', description: '', wbsId: node.id_wbs });
-  const openEditActivite = (a: Activite) => setActModal({ open: true, id: a.id_activites, nom: a.nom_activite, description: a.description_activite || '', wbsId: a.id_wbs });
+  const openAddSousActivite = (parent: Activite) => setActModal({ open: true, nom: '', description: '', wbsId: parent.id_wbs, parentId: parent.id_activites });
+  const openEditActivite = (a: Activite) => setActModal({ open: true, id: a.id_activites, nom: a.nom_activite, description: a.description_activite || '', wbsId: a.id_wbs, parentId: a.id_activite_parent });
+
+  const codeApercuActivite = () => {
+    if (actModal.id) return activites.find(a => a.id_activites === actModal.id)?.code_activite ?? '—';
+    if (actModal.parentId) {
+      const parent = activites.find(a => a.id_activites === actModal.parentId);
+      return parent ? nextSousActiviteCode(parent) : '—';
+    }
+    const node = wbs.find(w => w.id_wbs === actModal.wbsId);
+    return node ? nextActiviteCode(node) : '—';
+  };
 
   const saveActivite = async () => {
     const nom = actModal.nom.trim();
@@ -149,16 +218,18 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
     if (!nom || !node) return;
     try {
       const existing = actModal.id ? activites.find(a => a.id_activites === actModal.id) : undefined;
+      const parent = actModal.parentId ? activites.find(a => a.id_activites === actModal.parentId) : undefined;
       await upsertActivite(existing
-        ? { ...existing, nom_activite: nom, description_activite: actModal.description.trim(), id_wbs: actModal.wbsId }
+        ? { ...existing, nom_activite: nom, description_activite: actModal.description.trim() }
         : {
             id_activites: `act-${Date.now()}`,
-            code_activite: nextActiviteCode(node),
+            code_activite: parent ? nextSousActiviteCode(parent) : nextActiviteCode(node),
             nom_activite: nom,
             description_activite: actModal.description.trim(),
             progression: 0,
             statut_activite: 'À faire',
-            id_wbs: actModal.wbsId
+            id_wbs: actModal.wbsId,
+            id_activite_parent: actModal.parentId
           });
       setActModal(m => ({ ...m, open: false }));
       notifySuccess('Activité enregistrée.');
@@ -256,9 +327,72 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
 
 
   // ===== Rendu de l'arbre =====
+  // Activité (récursive : porte ses sous-activités).
+  const ActiviteRow = ({ act }: { act: Activite }) => {
+    const enfants = activiteEnfants(activites, act.id_activites);
+    const hasChildren = enfants.length > 0;
+    const isExpanded = expandedNodes.has(act.id_activites);
+    const actSelected = selectedActiviteId === act.id_activites;
+    return (
+      <div className="mb-0.5">
+        <div
+          className={`flex items-center gap-1.5 p-1.5 rounded-md cursor-pointer border transition-colors ${actSelected ? 'bg-blue-50 border-blue-300' : 'border-transparent hover:bg-gray-50'}`}
+          onClick={() => { setSelectedActiviteId(act.id_activites); setSelectedNodeId(act.id_wbs); }}
+        >
+          <div
+            className="w-4 h-4 rounded border border-gray-200 bg-gray-50 flex items-center justify-center cursor-pointer text-xs font-medium text-gray-600 shrink-0"
+            onClick={(e) => { e.stopPropagation(); if (hasChildren) toggleExpanded(act.id_activites); }}
+          >
+            {hasChildren ? (isExpanded ? '−' : '+') : '·'}
+          </div>
+          <span className="h-2 w-2 rounded-full bg-[#1e3a5f] shrink-0" />
+          <span className="flex-1 truncate min-w-0 text-sm text-gray-700">{act.nom_activite}</span>
+        </div>
+        {hasChildren && isExpanded && (
+          <div className="ml-5 border-l border-dashed border-gray-300 pl-2">
+            {enfants.map(c => <ActiviteRow key={c.id_activites} act={c} />)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Item d'activité dans le panneau de détail (récursif : sous-activités imbriquées).
+  const ActiviteDetailItem = ({ act, depth = 0 }: { act: Activite; depth?: number }) => {
+    const enfants = activiteEnfants(activites, act.id_activites);
+    const siblings = act.id_activite_parent
+      ? activiteEnfants(activites, act.id_activite_parent)
+      : activitesRacinesWbs(activites, act.id_wbs);
+    const actIdx = siblings.findIndex(a => a.id_activites === act.id_activites);
+    return (
+      <div>
+        <div className="flex justify-between items-start gap-2 rounded border border-gray-200 bg-gray-50 p-2" style={{ marginLeft: depth * 12 }}>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-[#1e3a5f]"><span className="font-mono text-gray-500">{act.code_activite}</span> — {act.nom_activite}</p>
+            {act.description_activite && <p className="truncate text-xs text-gray-500">{act.description_activite}</p>}
+          </div>
+          <div className="flex shrink-0 gap-1">
+            <IconButton variant="secondary" size="sm" icon="chevron-up" tooltip="Monter" disabled={actIdx <= 0} onClick={() => moveActivite(act, 'up')} />
+            <IconButton variant="secondary" size="sm" icon="chevron-down" tooltip="Descendre" disabled={actIdx < 0 || actIdx >= siblings.length - 1} onClick={() => moveActivite(act, 'down')} />
+            <IconButton variant="secondary" size="sm" icon="plus" tooltip="Ajouter une sous-activité" onClick={() => openAddSousActivite(act)} />
+            <IconButton variant="secondary" size="sm" icon="edit" tooltip="Modifier" onClick={() => openEditActivite(act)} />
+            <IconButton variant="danger" size="sm" icon="delete" tooltip="Supprimer" onClick={() => handleDeleteActivite(act)} />
+          </div>
+        </div>
+        {enfants.length > 0 && (
+          <div className="mt-1.5 space-y-1.5">
+            {enfants.map(c => <ActiviteDetailItem key={c.id_activites} act={c} depth={depth + 1} />)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const NodeComponent = ({ node, level = 0 }: { node: WbsEntity; level?: number }) => {
     const children = buildWbsTree(wbs, node.id_wbs);
-    const nodeActivites = showActivites ? activites.filter(a => a.id_wbs === node.id_wbs) : [];
+    const siblings = buildWbsTree(wbs, node.id_wbs_1 || undefined);
+    const wbsIdx = siblings.findIndex(w => w.id_wbs === node.id_wbs);
+    const nodeActivites = showActivites ? activitesRacinesWbs(activites, node.id_wbs) : [];
     const isExpanded = expandedNodes.has(node.id_wbs);
     const isSelected = selectedNodeId === node.id_wbs && !selectedActiviteId;
     const hasContent = children.length > 0 || nodeActivites.length > 0;
@@ -284,6 +418,8 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
             )}
             {mode === 'wbs' && isSelected && (
               <div className="flex gap-0.5">
+                <IconButton variant="secondary" size="sm" icon="chevron-up" tooltip="Monter" disabled={wbsIdx <= 0} onClick={(e) => { e.stopPropagation(); moveWbs(node, 'up'); }} />
+                <IconButton variant="secondary" size="sm" icon="chevron-down" tooltip="Descendre" disabled={wbsIdx < 0 || wbsIdx >= siblings.length - 1} onClick={(e) => { e.stopPropagation(); moveWbs(node, 'down'); }} />
                 <IconButton variant="secondary" size="sm" icon="edit" tooltip="Modifier" onClick={(e) => { e.stopPropagation(); openEditWbs(node); }} />
                 <IconButton variant="secondary" size="sm" icon="plus" tooltip="Ajouter une sous-tâche" onClick={(e) => { e.stopPropagation(); openAddChild(node.id_wbs); }} />
                 <IconButton variant="danger" size="sm" icon="delete" tooltip="Supprimer" onClick={(e) => { e.stopPropagation(); handleDeleteNode(node); }} />
@@ -295,19 +431,7 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
         {isExpanded && (
           <div className="ml-5 border-l border-dashed border-gray-300 pl-2">
             {children.map(child => <NodeComponent key={child.id_wbs} node={child} level={level + 1} />)}
-            {nodeActivites.map(a => {
-              const actSelected = selectedActiviteId === a.id_activites;
-              return (
-                <div
-                  key={a.id_activites}
-                  className={`flex items-center gap-1.5 p-1.5 rounded-md cursor-pointer border transition-colors ${actSelected ? 'bg-blue-50 border-blue-300' : 'border-transparent hover:bg-gray-50'}`}
-                  onClick={() => { setSelectedActiviteId(a.id_activites); setSelectedNodeId(a.id_wbs); }}
-                >
-                  <span className="h-2 w-2 rounded-full bg-[#1e3a5f] shrink-0 ml-1" />
-                  <span className="flex-1 truncate min-w-0 text-sm text-gray-700">{a.nom_activite}</span>
-                </div>
-              );
-            })}
+            {nodeActivites.map(a => <ActiviteRow key={a.id_activites} act={a} />)}
           </div>
         )}
       </div>
@@ -359,22 +483,11 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
             <div className="mb-2 pb-1 border-b border-gray-100">
               <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Activités</span>
             </div>
-            {activitesDuNoeud.length === 0 ? (
+            {activitesRacinesWbs(activites, selectedNode.id_wbs).length === 0 ? (
               <p className="text-xs text-gray-500">Aucune activité pour ce lot.</p>
             ) : (
               <div className="space-y-1.5">
-                {activitesDuNoeud.map(a => (
-                  <div key={a.id_activites} className="flex justify-between items-start gap-2 p-2 bg-gray-50 rounded border border-gray-200">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-[#1e3a5f] truncate">{a.nom_activite}</p>
-                      {a.description_activite && <p className="text-xs text-gray-500 truncate">{a.description_activite}</p>}
-                    </div>
-                    <div className="flex gap-1 shrink-0">
-                      <IconButton variant="secondary" size="sm" icon="edit" tooltip="Modifier" onClick={() => openEditActivite(a)} />
-                      <IconButton variant="danger" size="sm" icon="delete" tooltip="Supprimer" onClick={() => handleDeleteActivite(a)} />
-                    </div>
-                  </div>
-                ))}
+                {activitesRacinesWbs(activites, selectedNode.id_wbs).map(a => <ActiviteDetailItem key={a.id_activites} act={a} />)}
               </div>
             )}
           </div>
@@ -467,14 +580,10 @@ export default function EcheancierDomaine({ processus }: { processus?: string })
       </Modal>
 
       {/* Modal Activité (Définir) : code / intitulé / description */}
-      <Modal isOpen={actModal.open} onClose={() => setActModal(m => ({ ...m, open: false }))} title={actModal.id ? "Modifier l'activité" : 'Ajouter une activité'} size="md">
+      <Modal isOpen={actModal.open} onClose={() => setActModal(m => ({ ...m, open: false }))} title={actModal.id ? "Modifier l'activité" : actModal.parentId ? 'Ajouter une sous-activité' : 'Ajouter une activité'} size="md">
         <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
-          <p className="text-xs font-medium text-blue-700">Code activité {actModal.id ? '' : '(généré automatiquement)'}</p>
-          <p className="mt-1 font-mono text-lg font-semibold text-blue-900">
-            {actModal.id
-              ? activites.find(a => a.id_activites === actModal.id)?.code_activite
-              : (() => { const n = wbs.find(w => w.id_wbs === actModal.wbsId); return n ? nextActiviteCode(n) : '--'; })()}
-          </p>
+          <p className="text-xs font-medium text-blue-700">Code {actModal.parentId ? 'sous-activité' : 'activité'} {actModal.id ? '' : '(généré automatiquement)'}</p>
+          <p className="mt-1 font-mono text-lg font-semibold text-blue-900">{codeApercuActivite()}</p>
         </div>
         <div className="space-y-4">
           <InputText label="Intitulé" value={actModal.nom} onChange={(e) => setActModal(m => ({ ...m, nom: e.target.value }))} />
@@ -581,7 +690,7 @@ function LiensEditor({ candidats, liens, onAdd, onSetType, onSetDelai, onRemove,
                   </select>
                 </div>
                 <div>
-                  <label className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-gray-400">Délai</label>
+                  <label className="mb-0.5 block text-[10px] font-medium uppercase tracking-wide text-gray-400">Décalage</label>
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
@@ -607,14 +716,21 @@ type FlatRow =
   | { kind: 'wbs'; node: WbsEntity; level: number }
   | { kind: 'act'; act: Activite; level: number };
 
-// Aplatit l'arbre en respectant l'état d'expansion (arbre dynamique).
+// Aplatit l'arbre en respectant l'état d'expansion (arbre dynamique, avec
+// sous-activités récursives).
 const buildFlatRows = (rootNodes: WbsEntity[], wbs: WbsEntity[], activites: Activite[], expanded: Set<string>, includeActivites = true): FlatRow[] => {
   const out: FlatRow[] = [];
+  const walkAct = (act: Activite, level: number) => {
+    out.push({ kind: 'act', act, level });
+    if (expanded.has(act.id_activites)) {
+      activites.filter(a => a.id_activite_parent === act.id_activites).forEach(c => walkAct(c, level + 1));
+    }
+  };
   const walk = (node: WbsEntity, level: number) => {
     out.push({ kind: 'wbs', node, level });
     if (expanded.has(node.id_wbs)) {
       buildWbsTree(wbs, node.id_wbs).forEach(c => walk(c, level + 1));
-      if (includeActivites) activites.filter(a => a.id_wbs === node.id_wbs).forEach(a => out.push({ kind: 'act', act: a, level: level + 1 }));
+      if (includeActivites) activites.filter(a => a.id_wbs === node.id_wbs && !a.id_activite_parent).forEach(a => walkAct(a, level + 1));
     }
   };
   rootNodes.forEach(n => walk(n, 0));
@@ -622,7 +738,7 @@ const buildFlatRows = (rootNodes: WbsEntity[], wbs: WbsEntity[], activites: Acti
 };
 
 const wbsHasContent = (node: WbsEntity, wbs: WbsEntity[], activites: Activite[], includeActivites = true) =>
-  buildWbsTree(wbs, node.id_wbs).length > 0 || (includeActivites && activites.some(a => a.id_wbs === node.id_wbs));
+  buildWbsTree(wbs, node.id_wbs).length > 0 || (includeActivites && activites.some(a => a.id_wbs === node.id_wbs && !a.id_activite_parent));
 
 // Bouton de pli/dépli (même style que l'arbre principal).
 function ToggleBtn({ node, wbs, activites, expanded, onToggle, includeActivites = true }: {
@@ -662,8 +778,20 @@ function ArboCell({ row, wbs, activites, expandedNodes, onToggle }: {
       </div>
     );
   }
+  const aEnfants = activites.some(a => a.id_activite_parent === row.act.id_activites);
   return (
-    <div className="flex items-center gap-1.5" style={{ paddingLeft: row.level * 18 + 20 }}>
+    <div className="flex items-center gap-1.5" style={{ paddingLeft: row.level * 18 }}>
+      {aEnfants ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggle(row.act.id_activites); }}
+          className="inline-flex h-4 w-4 items-center justify-center rounded border border-gray-200 bg-gray-50 align-middle text-xs font-medium text-gray-600 shrink-0"
+        >
+          {expandedNodes.has(row.act.id_activites) ? '−' : '+'}
+        </button>
+      ) : (
+        <span className="inline-flex h-4 w-4 items-center justify-center text-gray-300 shrink-0">·</span>
+      )}
       <span className="h-2 w-2 rounded-full bg-[#1e3a5f] shrink-0" />
       <span className="truncate text-gray-700">{row.act.nom_activite}</span>
     </div>
@@ -682,7 +810,7 @@ const parseDate = (s?: string): Date | null => {
 };
 
 const ROW_H = 30;
-const DAY_W = 20;
+const BASE_DAY_W = 34;
 const MONTH_H = 18;
 const WEEK_H = 16;
 const DAY_H = 22;
@@ -808,6 +936,19 @@ function GanttGrid({ wbs, activites, rootNodes, expandedNodes, onToggle, selecte
   expandedNodes: Set<string>; onToggle: (id: string) => void;
   selectedActiviteId: string | null; onSelectActivite: (id: string) => void;
 }) {
+  // Mesure la largeur disponible pour étirer la timeline sur tout l'espace.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [availW, setAvailW] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setAvailW(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const rows = buildFlatRows(rootNodes, wbs, activites, expandedNodes);
   const dated = activites
     .map(a => ({ a, d: parseDate(a.date_debut_prevue), f: parseDate(a.date_fin_prevue) }))
@@ -817,15 +958,24 @@ function GanttGrid({ wbs, activites, rootNodes, expandedNodes, onToggle, selecte
     return <div className="flex-1 flex items-center justify-center p-8 text-center text-sm text-gray-500">Renseignez les dates des activités (« Estimer la durée ») pour afficher le diagramme de Gantt.</div>;
   }
 
+  // Cadre la période sur des semaines entières (lundi → dimanche) pour donner
+  // de la respiration, même quand le projet ne dure que quelques jours.
   const min = startOfDay(new Date(Math.min(...dated.map(x => x.d.getTime()))));
   const max = startOfDay(new Date(Math.max(...dated.map(x => x.f.getTime()))));
+  min.setDate(min.getDate() - ((min.getDay() + 6) % 7));
+  max.setDate(max.getDate() + (6 - ((max.getDay() + 6) % 7)));
   const totalDays = daysBetween(min, max) + 1;
   const days: Date[] = Array.from({ length: totalDays }, (_, i) => { const d = new Date(min); d.setDate(d.getDate() + i); return d; });
+
+  // Largeur d'un jour : étirée pour remplir l'espace restant si la période est
+  // courte ; largeur mini (défilement) si la période est longue.
+  const LEFT_W = TREE_W + 2 * DATE_W + DUR_W;
+  const DAY_W = totalDays > 0 ? Math.max(BASE_DAY_W, Math.max(availW - LEFT_W, 0) / totalDays) : BASE_DAY_W;
 
   const months: { label: string; days: number }[] = [];
   const weeks: { label: string; days: number }[] = [];
   days.forEach((d, i) => {
-    if (i === 0 || d.getDate() === 1) months.push({ label: d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }), days: 0 });
+    if (i === 0 || d.getDate() === 1) months.push({ label: d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }), days: 0 });
     months[months.length - 1].days++;
     if (i === 0 || d.getDay() === 1) weeks.push({ label: d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }), days: 0 });
     weeks[weeks.length - 1].days++;
@@ -833,14 +983,54 @@ function GanttGrid({ wbs, activites, rootNodes, expandedNodes, onToggle, selecte
 
   const selected = dated.find(x => x.a.id_activites === selectedActiviteId);
 
+  // Positions + dates des activités datées (pour tracer et valider les liaisons).
+  const actInfo = new Map<string, { y: number; startX: number; endX: number; d: Date; f: Date }>();
+  rows.forEach((r, idx) => {
+    if (r.kind !== 'act') return;
+    const dd = parseDate(r.act.date_debut_prevue);
+    const ff = parseDate(r.act.date_fin_prevue);
+    if (!dd || !ff) return;
+    const startX = daysBetween(min, dd) * DAY_W;
+    const endX = startX + Math.max(daysBetween(dd, ff) + 1, 1) * DAY_W;
+    actInfo.set(r.act.id_activites, { y: idx * ROW_H + ROW_H / 2, startX, endX, d: dd, f: ff });
+  });
+
+  // Liaisons entre tâches : point de départ/arrivée selon le type, et détection
+  // des liaisons non respectées (successeur trop tôt vs prédécesseur + décalage).
+  const liaisons: { x1: number; y1: number; x2: number; y2: number; viol: boolean }[] = [];
+  let nbViolations = 0;
+  activites.forEach(b => {
+    const bi = actInfo.get(b.id_activites);
+    if (!bi) return;
+    parseLiens(b.predecesseurs).forEach(l => {
+      const ai = actInfo.get(l.id);
+      if (!ai) return;
+      const delai = l.delai || 0;
+      let viol = false;
+      if (l.type === 'FD') viol = daysBetween(ai.f, bi.d) < 1 + delai;
+      else if (l.type === 'DD') viol = daysBetween(ai.d, bi.d) < delai;
+      else if (l.type === 'FF') viol = daysBetween(ai.f, bi.f) < delai;
+      else if (l.type === 'DF') viol = daysBetween(ai.d, bi.f) < delai;
+      if (viol) nbViolations += 1;
+      const fromX = (l.type === 'FD' || l.type === 'FF') ? ai.endX : ai.startX;
+      const toX = (l.type === 'FD' || l.type === 'DD') ? bi.startX : bi.endX;
+      liaisons.push({ x1: fromX, y1: ai.y, x2: toX, y2: bi.y, viol });
+    });
+  });
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {nbViolations > 0 && (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          <span className="font-semibold">{nbViolations} liaison(s) non respectée(s)</span> (en rouge sur le diagramme) : une tâche commence ou finit trop tôt par rapport à son prédécesseur et son décalage.
+        </div>
+      )}
       {selected && (
         <div className="shrink-0 border-b border-gray-200 bg-blue-50 px-4 py-2 text-xs text-blue-900">
           <span className="font-semibold">{selected.a.nom_activite}</span> — du {fmtDate(selected.a.date_debut_prevue)} au {fmtDate(selected.a.date_fin_prevue)}
         </div>
       )}
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollRef} className="flex-1 overflow-auto">
         <div className="inline-flex min-w-full">
           {/* Panneau gauche figé : arbre + colonnes durée */}
           <div className="sticky left-0 z-20 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.05)]" style={{ width: TREE_W + 2 * DATE_W + DUR_W }}>
@@ -871,10 +1061,10 @@ function GanttGrid({ wbs, activites, rootNodes, expandedNodes, onToggle, selecte
             {/* Axe : mois / semaines / jours (initiale + numéro) */}
             <div className="bg-gray-50" style={{ height: AXIS_H }}>
               <div className="flex" style={{ height: MONTH_H }}>
-                {months.map((m, i) => <div key={i} className="flex items-center justify-center truncate border-l border-gray-300 px-1 text-[10px] font-semibold text-gray-700" style={{ width: m.days * DAY_W }}>{m.label}</div>)}
+                {months.map((m, i) => <div key={i} className="flex items-center justify-start truncate border-l border-gray-300 px-2 text-[10px] font-semibold text-gray-700" style={{ width: m.days * DAY_W }}>{m.label}</div>)}
               </div>
               <div className="flex" style={{ height: WEEK_H }}>
-                {weeks.map((w, i) => <div key={i} className="flex items-center justify-center truncate border-l border-gray-200 px-1 text-[9px] text-gray-500" style={{ width: w.days * DAY_W }}>sem. {w.label}</div>)}
+                {weeks.map((w, i) => <div key={i} className="flex items-center justify-start truncate border-l border-gray-200 px-2 text-[9px] text-gray-500" style={{ width: w.days * DAY_W }}>sem. {w.label}</div>)}
               </div>
               <div className="flex" style={{ height: DAY_H }}>
                 {days.map((d, i) => {
@@ -890,7 +1080,8 @@ function GanttGrid({ wbs, activites, rootNodes, expandedNodes, onToggle, selecte
               </div>
             </div>
 
-            {/* Lignes */}
+            {/* Lignes + liaisons entre tâches */}
+            <div className="relative">
             {rows.map(r => {
               const sel = r.kind === 'act' && r.act.id_activites === selectedActiviteId;
               const d = r.kind === 'act' ? parseDate(r.act.date_debut_prevue) : null;
@@ -917,6 +1108,16 @@ function GanttGrid({ wbs, activites, rootNodes, expandedNodes, onToggle, selecte
                 </div>
               );
             })}
+            <svg className="pointer-events-none absolute left-0 top-0" width={totalDays * DAY_W} height={rows.length * ROW_H} style={{ overflow: 'visible' }}>
+              <defs>
+                <marker id="fleche" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8" /></marker>
+                <marker id="fleche-rouge" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#dc2626" /></marker>
+              </defs>
+              {liaisons.map((k, i) => (
+                <line key={i} x1={k.x1} y1={k.y1} x2={k.x2} y2={k.y2} stroke={k.viol ? '#dc2626' : '#94a3b8'} strokeWidth={k.viol ? 1.5 : 1} strokeDasharray={k.viol ? '4 3' : undefined} markerEnd={`url(#${k.viol ? 'fleche-rouge' : 'fleche'})`} />
+              ))}
+            </svg>
+            </div>
           </div>
         </div>
       </div>

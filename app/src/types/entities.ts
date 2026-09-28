@@ -26,6 +26,14 @@ export interface Projet {
   id_charte?: EntityId;
   id_wbs?: EntityId;
   id_perimetre?: EntityId;
+  /** Horodatage technique de création (backend), pour le tri chronologique. */
+  cree_le?: string;
+  /** Ordre manuel dans la fratrie (monter/descendre). */
+  ordre?: number;
+  /** Taux (%) de la cascade de coûts BTP (au niveau projet). */
+  taux_frais?: number;
+  taux_majorations?: number;
+  taux_marge_aleas?: number;
 }
 
 /** Table charte */
@@ -44,6 +52,7 @@ export interface Charte {
   type_projet?: string;
   sponsor_ouvrage?: string;
   chef_projet?: string;
+  duree_estimative?: number;
   objectif_general?: string;
   objectifs_specifiques?: string;
   signature_image?: string;
@@ -56,10 +65,15 @@ export interface Charte {
 export interface LigneBudgetaire {
   id_ligne: EntityId;
   designation: string;
+  unite?: string;
   prix_unitaire: number;
   quantite: number;
   total?: number;
   ordre?: number;
+  // #5 : nom de la phase (calendrier previsionnel) a laquelle la ligne se rattache.
+  phase?: string;
+  // #8 / #9 : ligne parente pour les sous-taches (hierarchie a 2 niveaux).
+  id_tache_parent?: EntityId;
   id_charte?: EntityId;
 }
 
@@ -143,6 +157,8 @@ export interface Wbs {
   duree_estimee?: number;
   id_wbs_1?: EntityId;
   id_projet: EntityId;
+  /** Ordre manuel dans la fratrie (monter/descendre, #23). */
+  ordre?: number;
 }
 
 /** Table activites */
@@ -159,6 +175,10 @@ export interface Activite {
   predecesseurs?: string;
   type_dependance?: string;
   id_wbs: EntityId;
+  /** Activité parente (sous-activités) au sein d'un même lot WBS. */
+  id_activite_parent?: EntityId;
+  /** Ordre manuel dans la fratrie (monter/descendre, #23). */
+  ordre?: number;
 }
 
 /** Association particiter (partie_prenante ↔ activites) */
@@ -211,10 +231,14 @@ export interface QuantiteDisponible {
   nom_ressource: string;
   role: string;
   type_ressource: string;
+  quantite?: number;
   cout_unitaire: number;
   unite_mesure: string;
   id_activites?: EntityId;
 }
+
+/** Types de ressource (BTP) constituant le déboursé sec. */
+export const TYPES_RESSOURCE = ["Main d'œuvre", 'Matériaux', 'Matériels', 'Engins', 'Consommables'] as const;
 
 /** Table approvisionnement */
 export interface Approvisionnement {

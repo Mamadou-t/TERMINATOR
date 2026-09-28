@@ -85,6 +85,7 @@ const wbsPayload = (node: Wbs, projetId: string) => ({
   date_fin_prevue: node.date_fin_prevue || new Date().toISOString().slice(0, 10),
   duree_estimee: node.duree_estimee ?? 1,
   wbs_parent: isBackendId(node.id_wbs_1) ? node.id_wbs_1 : null,
+  ordre: node.ordre ?? 0,
   projet: projetId
 });
 
@@ -119,7 +120,9 @@ const activitePayload = (activite: Activite, wbsId: string) => ({
   statut_activite: activite.statut_activite || 'À faire',
   predecesseurs: activite.predecesseurs || '',
   type_dependance: activite.type_dependance || '',
-  wbs: wbsId
+  wbs: wbsId,
+  activite_parent: (activite.id_activite_parent && isBackendId(activite.id_activite_parent)) ? activite.id_activite_parent : null,
+  ordre: activite.ordre ?? 0
 });
 
 export const listerActivites = async (projetId: string): Promise<Activite[]> => {
@@ -174,7 +177,8 @@ export const supprimerCout = async (id: string): Promise<void> => {
 const ressourcePayload = (ressource: QuantiteDisponible, activiteId: string) => ({
   nom_ressource: ressource.nom_ressource,
   role: ressource.role || '',
-  type_ressource: ressource.type_ressource || 'Humaine',
+  type_ressource: ressource.type_ressource || "Main d'œuvre",
+  quantite: ressource.quantite ?? 1,
   cout_unitaire: ressource.cout_unitaire ?? 0,
   unite_mesure: ressource.unite_mesure || 'jour',
   activite: activiteId

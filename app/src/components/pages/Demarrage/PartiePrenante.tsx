@@ -718,8 +718,8 @@ export default function PartiesPrenantes() {
             color={draftColor}
             previewInitials={getPreviewInitials(draft.name, draft.initials)}
           />
-          <InputText label="Influence (1–5)" type="number" value={String(draft.influence)} onChange={(e) => setDraft(d => ({ ...d, influence: Number(e.target.value) }))} />
-          <InputText label="Intérêt (1–5)" type="number" value={String(draft.interest)} onChange={(e) => setDraft(d => ({ ...d, interest: Number(e.target.value) }))} />
+          <InputText label="Influence (1–5)" type="number" min={1} max={5} value={String(draft.influence)} onChange={(e) => setDraft(d => ({ ...d, influence: Math.min(5, Math.max(1, Number(e.target.value) || 1)) }))} />
+          <InputText label="Intérêt (1–5)" type="number" min={1} max={5} value={String(draft.interest)} onChange={(e) => setDraft(d => ({ ...d, interest: Math.min(5, Math.max(1, Number(e.target.value) || 1)) }))} />
           <InputText label="Mission" value={draft.strategy} onChange={(e) => setDraft(d => ({ ...d, strategy: e.target.value }))} />
           {/* <InputText label="Statut" type value={draft.status} onChange={(e) => setDraft(d => ({ ...d, status: e.target.value }))} /> */}
           <InputSelect label="Statut" value={draft.status} onChange={(e) => setDraft(d => ({ ...d, status: e.target.value }))} options={[{ value: 'Favorable', label: 'Favorable' }, { value: 'Résistante', label: 'Résistante' }, { value: 'Neutre', label: 'Neutre' }]} />
@@ -784,8 +784,8 @@ export default function PartiesPrenantes() {
             color={draftColor}
             previewInitials={getPreviewInitials(draft.name, draft.initials)}
           />
-          <InputText label="Influence (1–5)" type="number" value={String(draft.influence)} onChange={(e) => setDraft(d => ({ ...d, influence: Number(e.target.value) }))} />
-          <InputText label="Intérêt (1–5)" type="number" value={String(draft.interest)} onChange={(e) => setDraft(d => ({ ...d, interest: Number(e.target.value) }))} />
+          <InputText label="Influence (1–5)" type="number" min={1} max={5} value={String(draft.influence)} onChange={(e) => setDraft(d => ({ ...d, influence: Math.min(5, Math.max(1, Number(e.target.value) || 1)) }))} />
+          <InputText label="Intérêt (1–5)" type="number" min={1} max={5} value={String(draft.interest)} onChange={(e) => setDraft(d => ({ ...d, interest: Math.min(5, Math.max(1, Number(e.target.value) || 1)) }))} />
           <InputText label="Mission" value={draft.strategy} onChange={(e) => setDraft(d => ({ ...d, strategy: e.target.value }))} />
           {/* <InputText label="Statut" value={draft.status} onChange={(e) => setDraft(d => ({ ...d, status: e.target.value }))} /> */}
           <InputSelect label="Statut" value={draft.status} onChange={(e) => setDraft(d => ({ ...d, status: e.target.value }))} options={[{ value: 'Favorable', label: 'Favorable' }, { value: 'Résistante', label: 'Résistante' }, { value: 'Neutre', label: 'Neutre' }]} />

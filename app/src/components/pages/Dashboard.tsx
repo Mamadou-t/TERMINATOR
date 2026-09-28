@@ -7,6 +7,7 @@ import {
     CardContent
 } from '../';
 import { useProjet } from '../../context/ProjetContext';
+import { SyntheseSousProjets } from './SyntheseSousProjets';
 
 interface DashboardAlert {
     variant: 'warning' | 'info' | 'success' | 'error';
@@ -228,6 +229,9 @@ export default function Dashboard({ params }: { params?: Record<string, string |
                     </Card>
                 </div>
             </div>
+
+            {/* #12 : synthèse des sous-projets (masquée s'il n'y en a pas) */}
+            <SyntheseSousProjets projetId={currentProject.projectId} />
         </div>
     )
 }

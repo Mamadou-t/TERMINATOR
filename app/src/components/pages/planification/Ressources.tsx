@@ -6,11 +6,11 @@ import { formatApiError } from '../../../lib/api';
 import { Badge, Button, Icon, IconButton, InputText, Modal, ModalFooter } from '../../';
 import { InputSelect } from '../../InputSelect';
 import { WbsTreeNav } from './WbsTreeNav';
-import type { QuantiteDisponible } from '../../../types';
+import { TYPES_RESSOURCE, type QuantiteDisponible } from '../../../types';
 
-const TYPES_RESSOURCE = ['Humaine', 'Matériel', 'Équipement'];
+const emptyDraft = { nom_ressource: '', role: '', type_ressource: TYPES_RESSOURCE[0] as string, quantite: '1', cout_unitaire: '', unite_mesure: 'jour' };
 
-const emptyDraft = { nom_ressource: '', role: '', type_ressource: 'Humaine', cout_unitaire: '', unite_mesure: 'jour' };
+const montantRessource = (r: QuantiteDisponible) => (r.quantite ?? 1) * (r.cout_unitaire || 0);
 
 export default function Ressources() {
   const { ressources, activites, wbs, upsertRessource, removeRessource } = useProjet();
@@ -19,10 +19,26 @@ export default function Ressources() {
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const selectedNode = useMemo(() => wbs.find(w => w.id_wbs === selectedNodeId) || null, [wbs, selectedNodeId]);
-  const activitesDuNoeud = useMemo(
-    () => (selectedNode ? activites.filter(a => a.id_wbs === selectedNode.id_wbs) : []),
+  // Activités racines du lot (les sous-activités sont rendues sous leur parente).
+  const rootActivitesDuNoeud = useMemo(
+    () => (selectedNode ? activites.filter(a => a.id_wbs === selectedNode.id_wbs && !a.id_activite_parent) : []),
     [activites, selectedNode]
   );
+  const anyActiviteDuNoeud = useMemo(
+    () => (selectedNode ? activites.some(a => a.id_wbs === selectedNode.id_wbs) : false),
+    [activites, selectedNode]
+  );
+
+  const activiteEnfants = (parentId: string) => activites.filter(a => a.id_activite_parent === parentId);
+  // #21 : le montant d'une activité mère cumule ses ressources et celles de ses sous-activités.
+  const montantActiviteRollup = (activite: typeof activites[number]): number => {
+    const propres = ressources
+      .filter(r => r.id_activites === activite.id_activites)
+      .reduce((s, r) => s + montantRessource(r), 0);
+    const enfants = activiteEnfants(activite.id_activites)
+      .reduce((s, c) => s + montantActiviteRollup(c), 0);
+    return propres + enfants;
+  };
 
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -39,7 +55,8 @@ export default function Ressources() {
       id_activites: ressource.id_activites || '',
       nom_ressource: ressource.nom_ressource,
       role: ressource.role || '',
-      type_ressource: ressource.type_ressource || 'Humaine',
+      type_ressource: ressource.type_ressource || (TYPES_RESSOURCE[0] as string),
+      quantite: String(ressource.quantite ?? 1),
       cout_unitaire: String(ressource.cout_unitaire ?? ''),
       unite_mesure: ressource.unite_mesure || 'jour'
     });
@@ -57,6 +74,7 @@ export default function Ressources() {
         nom_ressource: nom,
         role: draft.role.trim(),
         type_ressource: draft.type_ressource,
+        quantite: draft.quantite ? Number(draft.quantite) : 1,
         cout_unitaire: draft.cout_unitaire ? Number(draft.cout_unitaire) : 0,
         unite_mesure: draft.unite_mesure,
         id_activites: draft.id_activites
@@ -82,6 +100,68 @@ export default function Ressources() {
     return count > 0 ? `${count} ressource${count > 1 ? 's' : ''}` : null;
   };
 
+  // Bloc d'une activité (récursif : porte ses sous-activités et cumule leur montant).
+  const renderActiviteBloc = (activite: typeof activites[number], depth = 0) => {
+    const ressourcesActivite = ressources.filter(r => r.id_activites === activite.id_activites);
+    const enfants = activiteEnfants(activite.id_activites);
+    const isSub = depth > 0;
+    return (
+      <div key={activite.id_activites} className={isSub ? 'ml-4 border-l-2 border-blue-200 pl-3' : ''}>
+        <div className={`flex items-center justify-between gap-2 mb-2 rounded-md px-2 py-1.5 ${isSub ? 'border border-slate-200 bg-slate-100/70' : 'border border-blue-100 bg-blue-50'}`}>
+          <span className="flex items-center gap-1.5 min-w-0">
+            {isSub
+              ? <span className="shrink-0 font-mono text-slate-400">↳</span>
+              : <Icon name="folder" size="xs" className="shrink-0 text-blue-600" />}
+            <span className={`truncate ${isSub ? 'text-xs font-medium text-slate-600' : 'text-sm font-semibold text-blue-900'}`}>
+              <span className="font-mono">{activite.code_activite}</span> — {activite.nom_activite}
+            </span>
+            {isSub && <Badge size="sm" variant="secondary">sous-activité</Badge>}
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {enfants.length > 0 && (
+              <span title="Total de l'activité, sous-activités incluses">
+                <Badge size="sm" variant="info">
+                  Total {montantActiviteRollup(activite).toLocaleString('fr-FR')} XOF
+                </Badge>
+              </span>
+            )}
+            <Button size="sm" onClick={() => openAdd(activite.id_activites)}>
+              <Icon name="plus" size="xs" />
+              Ajouter
+            </Button>
+          </div>
+        </div>
+        {ressourcesActivite.length === 0 ? (
+          <p className="mb-2 pl-2 text-xs italic text-gray-400">Aucune ressource pour cette {isSub ? 'sous-activité' : 'activité'}.</p>
+        ) : (
+          <div className="mb-2 space-y-1.5">
+            {ressourcesActivite.map((r) => (
+              <div key={r.id_ressource} className="flex justify-between items-start gap-2 p-2 bg-gray-50 rounded border border-gray-200">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-blue-900 truncate">{r.nom_ressource}</p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <Badge size="sm" variant="secondary">{r.type_ressource}</Badge>
+                    <span className="text-xs text-gray-600">{r.quantite ?? 1} {r.unite_mesure} × {r.cout_unitaire.toLocaleString('fr-FR')}</span>
+                    <Badge size="sm" variant="info">{montantRessource(r).toLocaleString('fr-FR')} XOF</Badge>
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <IconButton variant="secondary" size="sm" icon="edit" tooltip="Modifier" onClick={() => openEdit(r)} />
+                  <IconButton variant="danger" size="sm" icon="delete" tooltip="Supprimer" onClick={() => handleDelete(r)} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {enfants.length > 0 && (
+          <div className="mt-3 space-y-4">
+            {enfants.map((c) => renderActiviteBloc(c, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-full flex-col bg-gray-50 text-sm">
       {NotificationToast}
@@ -100,48 +180,12 @@ export default function Ressources() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-4">
-                  {activitesDuNoeud.length === 0 ? (
+                  {!anyActiviteDuNoeud ? (
                     <p className="text-sm text-gray-500">
                       Ajoutez d'abord une activité à ce lot dans WBS &amp; Activités avant d'y rattacher une ressource.
                     </p>
                   ) : (
-                    activitesDuNoeud.map((activite) => {
-                      const ressourcesActivite = ressources.filter(r => r.id_activites === activite.id_activites);
-                      return (
-                        <div key={activite.id_activites}>
-                          <div className="flex items-center justify-between mb-2 pb-1 border-b border-gray-100">
-                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider truncate">
-                              {activite.code_activite} — {activite.nom_activite}
-                            </span>
-                            <Button size="sm" onClick={() => openAdd(activite.id_activites)}>
-                              <Icon name="plus" size="xs" />
-                              Ajouter
-                            </Button>
-                          </div>
-                          {ressourcesActivite.length === 0 ? (
-                            <p className="text-xs text-gray-500">Aucune ressource pour cette activité.</p>
-                          ) : (
-                            <div className="space-y-1.5">
-                              {ressourcesActivite.map((r) => (
-                                <div key={r.id_ressource} className="flex justify-between items-start gap-2 p-2 bg-gray-50 rounded border border-gray-200">
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-semibold text-blue-900 truncate">{r.nom_ressource}</p>
-                                    <div className="flex items-center gap-2 mt-1">
-                                      <span className="text-xs text-gray-600">{r.role} · {r.type_ressource}</span>
-                                      <Badge size="sm" variant="info">{r.cout_unitaire.toLocaleString('fr-FR')} XOF / {r.unite_mesure}</Badge>
-                                    </div>
-                                  </div>
-                                  <div className="flex gap-1 shrink-0">
-                                    <IconButton variant="secondary" size="sm" icon="edit" tooltip="Modifier" onClick={() => openEdit(r)} />
-                                    <IconButton variant="danger" size="sm" icon="delete" tooltip="Supprimer" onClick={() => handleDelete(r)} />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
+                    rootActivitesDuNoeud.map((activite) => renderActiviteBloc(activite))
                   )}
                 </div>
               </>
@@ -155,16 +199,22 @@ export default function Ressources() {
 
       <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} title={draft.id ? 'Modifier la ressource' : 'Ajouter une ressource'} size="lg">
         <div className="grid grid-cols-2 gap-4">
-          <InputText label="Nom" value={draft.nom_ressource} onChange={(e) => setDraft(d => ({ ...d, nom_ressource: e.target.value }))} />
-          <InputText label="Rôle" value={draft.role} onChange={(e) => setDraft(d => ({ ...d, role: e.target.value }))} />
+          <InputText label="Nom / désignation" value={draft.nom_ressource} onChange={(e) => setDraft(d => ({ ...d, nom_ressource: e.target.value }))} />
           <InputSelect
             label="Type"
             value={draft.type_ressource}
             onChange={(e) => setDraft(d => ({ ...d, type_ressource: e.target.value }))}
             options={TYPES_RESSOURCE.map((type) => ({ value: type, label: type }))}
           />
+          <InputText label="Quantité" type="number" value={draft.quantite} onChange={(e) => setDraft(d => ({ ...d, quantite: e.target.value }))} />
+          <InputText label="Unité de mesure" placeholder="jour, heure, m³, u..." value={draft.unite_mesure} onChange={(e) => setDraft(d => ({ ...d, unite_mesure: e.target.value }))} />
           <InputText label="Coût unitaire (XOF)" type="number" value={draft.cout_unitaire} onChange={(e) => setDraft(d => ({ ...d, cout_unitaire: e.target.value }))} />
-          <InputText label="Unité de mesure" placeholder="jour, heure, m³..." value={draft.unite_mesure} onChange={(e) => setDraft(d => ({ ...d, unite_mesure: e.target.value }))} />
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Montant</label>
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
+              {((draft.quantite ? Number(draft.quantite) : 0) * (draft.cout_unitaire ? Number(draft.cout_unitaire) : 0)).toLocaleString('fr-FR')} XOF
+            </div>
+          </div>
         </div>
         <ModalFooter>
           <Button variant="secondary" onClick={() => setIsOpen(false)}>Annuler</Button>

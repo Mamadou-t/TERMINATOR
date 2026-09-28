@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { Button, Icon, InputText, Modal, ModalFooter } from './index';
 import { InputSelect } from './InputSelect';
 import { useConfirm } from '../hooks/useConfirm';
 import { useNotification } from '../hooks/useNotification';
 import { formatApiError } from '../lib/api';
-import { listerProjets, creerOuMajProjet, supprimerProjet } from '../services/demarrageApi';
+import { listerProjets, creerOuMajProjet, supprimerProjet, dupliquerProjet } from '../services/demarrageApi';
 import { buildProjetTree } from '../types/helpers';
 import type { Projet } from '../types';
 
@@ -19,8 +19,12 @@ interface ProjetTreeNavProps {
 
 export function ProjetTreeNav({ activeProjetId }: ProjetTreeNavProps) {
   const navigate = useNavigate();
+  // #15 : on reste dans la meme partie (phase/domaine) en changeant de projet.
+  const { phase, domaine } = useParams();
+  const goToProjet = (id: string) =>
+    navigate(phase && domaine ? `/projet/${id}/${phase}/${domaine}` : `/projet/${id}/Dashboard`);
   const { confirm, ConfirmDialog } = useConfirm();
-  const { notifyError, NotificationToast } = useNotification();
+  const { notifySuccess, notifyError, NotificationToast } = useNotification();
 
   const [projets, setProjets] = useState<Projet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -137,11 +141,53 @@ export function ProjetTreeNav({ activeProjetId }: ProjetTreeNavProps) {
     }
   };
 
+  // #13 : duplication d'un projet et de toutes ses donnees (deep-clone serveur).
+  const handleDuplicate = async (node: Projet) => {
+    const ok = await confirm({
+      message: `Dupliquer "${node.nom_projet}" et toutes ses données (charte, WBS, activités, coûts, ressources, risques, livrables, parties prenantes) ? Une copie sera créée.`
+    });
+    if (!ok) return;
+    try {
+      const copie = await dupliquerProjet(node.id_projet);
+      const rows = await listerProjets();
+      setProjets(rows);
+      notifySuccess(`Projet dupliqué : « ${copie.nom_projet} ».`);
+    } catch (err) {
+      notifyError(formatApiError(err));
+    }
+  };
+
+  // Monter / descendre un projet dans sa fratrie (borné aux frères : un
+  // sous-projet ne peut jamais passer au-dessus de son parent).
+  const moveSibling = async (node: Projet, dir: 'up' | 'down') => {
+    const siblings = buildProjetTree(projets, node.id_projet_1 || undefined);
+    const idx = siblings.findIndex((s) => s.id_projet === node.id_projet);
+    const target = dir === 'up' ? idx - 1 : idx + 1;
+    if (idx < 0 || target < 0 || target >= siblings.length) return;
+
+    const reordered = [...siblings];
+    [reordered[idx], reordered[target]] = [reordered[target], reordered[idx]];
+    // Réindexe la fratrie (ordre = position) et persiste les projets modifiés.
+    const changed = reordered
+      .map((s, i) => ({ s, i }))
+      .filter(({ s, i }) => (s.ordre ?? 0) !== i);
+    try {
+      const saved = await Promise.all(changed.map(({ s, i }) => creerOuMajProjet({ ...s, ordre: i })));
+      setProjets((prev) => prev.map((p) => saved.find((sv) => sv.id_projet === p.id_projet) || p));
+    } catch (err) {
+      notifyError(formatApiError(err));
+    }
+  };
+
   const Node = ({ node, level = 0 }: { node: Projet; level?: number }) => {
     const children = buildProjetTree(projets, node.id_projet);
     const hasChildren = children.length > 0;
     const isExpanded = expandedNodes.has(node.id_projet);
     const isActive = activeProjetId === node.id_projet;
+    const siblings = buildProjetTree(projets, node.id_projet_1 || undefined);
+    const idx = siblings.findIndex((s) => s.id_projet === node.id_projet);
+    const canUp = idx > 0;
+    const canDown = idx >= 0 && idx < siblings.length - 1;
 
     return (
       <div className="mb-0.5">
@@ -149,7 +195,7 @@ export function ProjetTreeNav({ activeProjetId }: ProjetTreeNavProps) {
           className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition-all duration-200 ${
             isActive ? 'bg-[#ffffff20] text-white' : 'text-[#ffffffcc] hover:bg-[#ffffff10] hover:text-white'
           }`}
-          onClick={() => navigate(`/projet/${node.id_projet}/Dashboard`)}
+          onClick={() => goToProjet(node.id_projet)}
         >
           <div
             className="w-4 h-4 shrink-0 flex items-center justify-center text-xs font-medium text-[#ffffffa0]"
@@ -164,6 +210,24 @@ export function ProjetTreeNav({ activeProjetId }: ProjetTreeNavProps) {
             {node.nom_projet}
           </span>
           <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+            {canUp && (
+              <button
+                className="w-5 h-5 rounded flex items-center justify-center hover:bg-[#ffffff20]"
+                onClick={(e) => { e.stopPropagation(); void moveSibling(node, 'up'); }}
+                title="Monter"
+              >
+                <Icon name="chevron-up" size="xs" className="text-[#ffffffcc]" />
+              </button>
+            )}
+            {canDown && (
+              <button
+                className="w-5 h-5 rounded flex items-center justify-center hover:bg-[#ffffff20]"
+                onClick={(e) => { e.stopPropagation(); void moveSibling(node, 'down'); }}
+                title="Descendre"
+              >
+                <Icon name="chevron-down" size="xs" className="text-[#ffffffcc]" />
+              </button>
+            )}
             <button
               className="w-5 h-5 rounded flex items-center justify-center hover:bg-[#ffffff20]"
               onClick={(e) => { e.stopPropagation(); openEdit(node); }}
@@ -177,6 +241,13 @@ export function ProjetTreeNav({ activeProjetId }: ProjetTreeNavProps) {
               title="Ajouter un sous-projet"
             >
               <Icon name="plus" size="xs" className="text-[#ffffffcc]" />
+            </button>
+            <button
+              className="w-5 h-5 rounded flex items-center justify-center hover:bg-[#ffffff20]"
+              onClick={(e) => { e.stopPropagation(); void handleDuplicate(node); }}
+              title="Dupliquer"
+            >
+              <Icon name="copy" size="xs" className="text-[#ffffffcc]" />
             </button>
             <button
               className="w-5 h-5 rounded flex items-center justify-center hover:bg-[#ffffff20]"

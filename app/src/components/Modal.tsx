@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Icon } from './';
+import { createPortal } from 'react-dom';
 import { IconButton } from './IconButton';
 
 export interface ModalProps {
@@ -49,9 +49,9 @@ export const Modal: React.FC<ModalProps> = ({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Overlay */}
       <div
@@ -93,7 +93,8 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

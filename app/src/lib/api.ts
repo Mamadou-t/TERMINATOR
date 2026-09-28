@@ -101,6 +101,46 @@ export async function apiRequest<T = unknown>(path: string, options: RequestOpti
   return response.json();
 }
 
+/**
+ * Récupère TOUTES les pages d'un endpoint de liste DRF paginé (suit `next`).
+ * Sans ça, seul le 1er lot (PAGE_SIZE) est lu et le reste « disparaît ».
+ */
+export async function apiRequestList<T = unknown>(path: string, options: RequestOptions = {}): Promise<T[]> {
+  const out: T[] = [];
+  let nextPath: string | null = path;
+  let guard = 0;
+
+  while (nextPath && guard < 1000) {
+    guard += 1;
+    const currentPath: string = nextPath;
+    const payload: { results?: T[]; next?: string | null } | T[] =
+      await apiRequest<{ results?: T[]; next?: string | null } | T[]>(currentPath, options);
+
+    if (Array.isArray(payload)) {
+      out.push(...payload);
+      break;
+    }
+
+    out.push(...(payload.results ?? []));
+
+    // `next` est une URL absolue : on en extrait le numéro de page et on
+    // rejoue le même chemin (apiRequest préfixe déjà l'URL de base).
+    const nextUrl: string | null | undefined = payload.next;
+    if (!nextUrl) break;
+    let page: string | null = null;
+    try {
+      page = new URL(nextUrl).searchParams.get('page');
+    } catch {
+      page = null;
+    }
+    if (!page) break;
+    const base = path.split('#')[0];
+    nextPath = `${base}${base.includes('?') ? '&' : '?'}page=${page}`;
+  }
+
+  return out;
+}
+
 export function formatApiError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.details && typeof error.details === 'object') {

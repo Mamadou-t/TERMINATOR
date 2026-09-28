@@ -119,7 +119,7 @@ const TOUS_DOMAINES = DOMAINES.map((d) => d.slug);
 // maîtrise n'étant pas restreinte, elle couvre tous les domaines).
 export const PHASES: PhaseDef[] = [
   { slug: 'Demarrage', label: 'Démarrage', domaines: ['integration', 'parties-prenantes'] },
-  { slug: 'Planification', label: 'Planification', domaines: ['perimetre', 'echeancier', 'cout', 'ressources', 'risques', 'approvisionnements', 'parties-prenantes'] },
+  { slug: 'Planification', label: 'Planification', domaines: ['perimetre', 'echeancier', 'ressources', 'cout', 'risques', 'approvisionnements', 'parties-prenantes'] },
   { slug: 'Execution', label: 'Exécution', domaines: ['qualite', 'ressources', 'communication', 'risques', 'approvisionnements', 'parties-prenantes'] },
   { slug: 'Surveillance', label: 'Surveillance et maîtrise', domaines: TOUS_DOMAINES },
   { slug: 'Cloture', label: 'Clôture', domaines: ['integration'] }
@@ -133,10 +133,12 @@ export const findPhase = (slug?: string): PhaseDef =>
 export const findDomaine = (slug?: string): DomaineDef =>
   DOMAINES.find((d) => d.slug === slug) || DOMAINES[0];
 
-/** Domaines de connaissance (ordre canonique) autorisés pour une phase. */
+/** Domaines de connaissance autorisés pour une phase, dans l'ordre défini par la phase. */
 export const domainesForPhase = (phaseSlug?: string): DomaineDef[] => {
   const phase = findPhase(phaseSlug);
-  return DOMAINES.filter((d) => phase.domaines.includes(d.slug));
+  return phase.domaines
+    .map((slug) => DOMAINES.find((d) => d.slug === slug))
+    .filter((d): d is DomaineDef => !!d);
 };
 
 /** Premier domaine autorisé d'une phase (domaine par défaut de la phase). */
