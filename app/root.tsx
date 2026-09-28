@@ -36,6 +36,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="google" content="notranslate" />
         <Meta />
         <Links />
+        <script defer src="https://analytics.terminator.systems/script.js" data-website-id="3a6d072e-57b0-4536-b837-9a80d902729a"></script>
       </head>
       <body>
         {children}
