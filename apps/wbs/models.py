@@ -35,9 +35,14 @@ class WBS(BaseModel):
         related_name="wbs_elements",
     )
 
+    # Ordre manuel dans la fratrie (monter/descendre, #23). Tri secondaire
+    # sur cree_le tant qu'aucun ordre n'est pose.
+    ordre = models.PositiveIntegerField(default=0)
+
     class Meta:
         verbose_name = "element WBS"
         verbose_name_plural = "elements WBS"
+        ordering = ["ordre", "cree_le"]
 
     def __str__(self):
         return f"{self.code_wbs} - {self.nom_travail}"

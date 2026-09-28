@@ -1,0 +1,55 @@
+# Stack de production Terminator sur le VPS Hostinger (KVM 2).
+#   db    : PostgreSQL (donnees dans un volume persistant)
+#   web   : API Django (gunicorn)
+#   nginx : sert le front (SPA) + proxy /api, /admin, /static vers Django
+#
+# Prerequis : cloner les DEUX depots cote a cote :
+#   ~/terminator/terminator-backend   (ce depot)
+#   ~/terminator/projet_terminator    (le front)
+# Puis, depuis terminator-backend/ :
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+services:
+  db:
+    image: postgres:16
+    container_name: terminator_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - terminator_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+    container_name: terminator_web
+    restart: unless-stopped
+    env_file: .env.prod
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+
+  nginx:
+    build:
+      context: ../projet_terminator
+      dockerfile: deploy/Dockerfile.nginx
+      args:
+        VITE_API_BASE_URL: /api/v1
+    container_name: terminator_nginx
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+
+volumes:
+  terminator_pgdata:

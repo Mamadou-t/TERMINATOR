@@ -5,6 +5,7 @@ Django settings for Terminator - outil de gestion de projet BTP (PMI/PMBOK).
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
 from decouple import Csv, config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -88,14 +89,13 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'config.wsgi.application'
+# WSGI_APPLICATION = 'config.wsgi.application'
 
 # --------------------------------------------------------------------------
 # Base de donnees
 # --------------------------------------------------------------------------
-# En production (Railway/Supabase), DATABASE_URL prime sur tout le reste.
-import dj_database_url  # noqa: E402
-
+# En production, si DATABASE_URL est fourni il prime ; sinon on utilise les
+# variables DB_* (cas du VPS Hostinger + conteneur Postgres).
 DATABASE_URL = config('DATABASE_URL', default='')
 
 if DATABASE_URL:

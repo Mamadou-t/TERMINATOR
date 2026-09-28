@@ -30,9 +30,24 @@ class Activite(BaseModel):
         related_name="activites",
     )
 
+    # Activite parente (sous-activites) : hierarchie recursive au sein d'un
+    # meme lot WBS.
+    activite_parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="sous_activites",
+    )
+
+    # Ordre manuel dans la fratrie (monter/descendre, #23). Tri secondaire
+    # sur cree_le tant qu'aucun ordre n'est pose.
+    ordre = models.PositiveIntegerField(default=0)
+
     class Meta:
         verbose_name = "activite"
         verbose_name_plural = "activites"
+        ordering = ["ordre", "cree_le"]
 
     def __str__(self):
         return f"{self.code_activite} - {self.nom_activite}"

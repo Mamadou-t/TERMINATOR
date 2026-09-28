@@ -28,4 +28,8 @@ class CharteSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "cree_le", "modifie_le")
 
     def get_budget_previsionnel_total(self, obj):
-        return sum((ligne.total for ligne in obj.lignes_budgetaires.all()), 0)
+        # Total = somme des lignes feuilles uniquement (une tache avec des
+        # sous-taches est un conteneur : son montant est le cumul des enfants).
+        lignes = list(obj.lignes_budgetaires.all())
+        parents = {ligne.tache_parent_id for ligne in lignes if ligne.tache_parent_id}
+        return sum((ligne.total for ligne in lignes if ligne.id not in parents), 0)

@@ -14,8 +14,9 @@ class Ressource(BaseModel):
     nom_ressource = models.CharField(max_length=255)
     # TODO: valeurs exactes de l'enum a confirmer (main_oeuvre, materiel, ...)
     role = models.CharField(max_length=100, blank=True)
-    # TODO: valeurs exactes de l'enum a confirmer
+    # Type BTP : Main d'oeuvre / Materiaux / Materiels / Engins / Consommables.
     type_ressource = models.CharField(max_length=50)
+    quantite = models.DecimalField(max_digits=14, decimal_places=2, default=1)
     cout_unitaire = models.DecimalField(max_digits=14, decimal_places=2)
     unite_mesure = models.CharField(max_length=50)
 

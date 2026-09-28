@@ -25,6 +25,10 @@ class Charte(BaseModel):
     sponsor_ouvrage = models.CharField(max_length=255, blank=True)
     chef_projet = models.CharField(max_length=255, blank=True)
 
+    # Duree estimative du projet (en jours), saisie alternative aux dates
+    # debut/fin (cf. dates portees par le PROJET).
+    duree_estimative = models.PositiveIntegerField(null=True, blank=True)
+
     # Objectifs du projet.
     objectif_general = models.TextField(blank=True)
     objectifs_specifiques = models.TextField(blank=True)
@@ -58,9 +62,23 @@ class LigneBudgetairePrevisionnelle(BaseModel):
         related_name="lignes_budgetaires",
     )
     designation = models.CharField(max_length=255)
+    # Unite de mesure (ex: m2, ml, u, forfait...).
+    unite = models.CharField(max_length=50, blank=True)
     prix_unitaire = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     quantite = models.DecimalField(max_digits=12, decimal_places=2, default=1)
     ordre = models.PositiveIntegerField(default=0)
+
+    # #5 : rattachement a une phase du calendrier previsionnel, par nom de
+    # phase (les phases definies dans le calendrier se calent dans le budget).
+    phase = models.CharField(max_length=255, blank=True)
+    # #8 / #9 : sous-taches (hierarchie a 2 niveaux) pour un total par phase.
+    tache_parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="sous_taches",
+    )
 
     class Meta:
         verbose_name = "ligne budgetaire previsionnelle"

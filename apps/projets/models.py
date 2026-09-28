@@ -18,6 +18,16 @@ class Projet(BaseModel):
     statut_projet = models.CharField(max_length=50)
     budget_total = models.DecimalField(max_digits=16, decimal_places=2)
 
+    # Ordre manuel dans la fratrie (monter/descendre). Par defaut 0 ; le tri
+    # secondaire (recence/creation) departage tant qu'aucun ordre n'est pose.
+    ordre = models.IntegerField(default=0)
+
+    # Taux (%) de la cascade de couts BTP (debourse sec -> cout de vente),
+    # appliques au niveau projet.
+    taux_frais = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    taux_majorations = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    taux_marge_aleas = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+
     # Association recursive du MLD (id_projet_1) : hierarchie projet parent /
     # sous-projets (ex: lots dans un projet BTP global, cf. fichiers
     # "betalot 2"). A confirmer : cascade ou detachement (SET_NULL) souhaite
