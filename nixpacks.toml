@@ -1,0 +1,17 @@
+# Config Nixpacks pour la SPA React Router (Dokploy).
+# Corrige les 2 pieges par defaut de Nixpacks sur ce projet :
+#  1) il installe sans les devDependencies (donc sans `vite`) -> on force --include=dev
+#  2) l'app est en mode SPA (ssr:false) : pas de serveur genere, donc `npm start`
+#     ne marche pas -> on sert le build statique (build/client) avec `serve`.
+
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
+[phases.install]
+cmds = ["npm ci --include=dev"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npx serve -s build/client -l ${PORT:-3000}"
