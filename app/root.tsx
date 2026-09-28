@@ -26,10 +26,14 @@ export const links: Route.LinksFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="fr" translate="no">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* Empeche la traduction automatique du navigateur (Chrome/Google Translate),
+            qui modifie le DOM en dehors de React et provoque des crashs
+            "insertBefore ... is not a child of this node" au moindre re-rendu. */}
+        <meta name="google" content="notranslate" />
         <Meta />
         <Links />
       </head>
